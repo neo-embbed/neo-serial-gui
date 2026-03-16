@@ -1,6 +1,8 @@
 ﻿#include "../core/transport/transport.h"
 #include "../core/transport/uart/uart_transport.h"
 #include <iostream>
+#include <chrono>
+#include <iomanip>
 
 int main() {
     // ---- 第 1 步 初始化串口 ----
@@ -9,20 +11,20 @@ int main() {
     cfg.port     = "COM5";
     cfg.baudrate = 115200;
     auto uart = std::make_unique<neo::UartTransport>(cfg);
-
     // ---- 第 2 步 注册消息回调 ----
     // 当 uart 收到消息时会触发该回调
     uart->onMessage([](const neo::Message& msg) {
         // 根据消息方向分别处理“接收/发送/系统”消息
+        auto t = std::chrono::system_clock::to_time_t(msg.timestamp);
         switch (msg.direction) {
             case neo::Direction::Rx:
-                std::cout << "[接收] " << msg.content << std::endl;
+                std::cout << std::put_time(std::localtime(&t), "%H:%M:%S") << "[Rx] " << msg.content << std::endl;
                 break;
             case neo::Direction::Tx:
-                std::cout << "[发送] " << msg.content << std::endl;
+                std::cout << std::put_time(std::localtime(&t), "%H:%M:%S") << "[Tx] " << msg.content << std::endl;
                 break;
             case neo::Direction::Sys:
-                std::cout << "[系统] " << msg.content << std::endl;
+                std::cout << std::put_time(std::localtime(&t), "%H:%M:%S") << "[Sys] " << msg.content << std::endl;
                 break;
         }
     });
