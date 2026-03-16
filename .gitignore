@@ -1,3 +1,5 @@
 reference/*
 .vscode/*
 .vscode
+docs/user/*
+*.exe
