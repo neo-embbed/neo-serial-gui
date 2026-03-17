@@ -51,6 +51,15 @@ public:
 
     const UartConfig& config() const { return config_; }
 
+    // --- convenience getters -----------------------------------------------
+    const std::string& port()     const { return config_.port; }
+    uint32_t           baudrate() const { return config_.baudrate; }
+    uint8_t            databits() const { return config_.databits; }
+    Parity             parity()   const { return config_.parity; }
+    StopBits           stopbits() const { return config_.stopbits; }
+
+    std::string connectionInfo() const override;
+
     // Enumerate available serial ports (thread-safe, no instance needed).
     static std::vector<PortInfo> listPorts();
 

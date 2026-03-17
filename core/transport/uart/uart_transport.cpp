@@ -27,6 +27,33 @@ UartTransport::~UartTransport() {
 }
 
 // ===========================================================================
+// connectionInfo
+// ===========================================================================
+
+std::string UartTransport::connectionInfo() const {
+    // Format: "COM3 @ 115200 8N1"
+    std::string info = config_.port + " @ " + std::to_string(config_.baudrate) + " ";
+
+    info += std::to_string(config_.databits);
+
+    switch (config_.parity) {
+        case Parity::None:  info += 'N'; break;
+        case Parity::Even:  info += 'E'; break;
+        case Parity::Odd:   info += 'O'; break;
+        case Parity::Mark:  info += 'M'; break;
+        case Parity::Space: info += 'S'; break;
+    }
+
+    switch (config_.stopbits) {
+        case StopBits::One:          info += '1';   break;
+        case StopBits::OnePointFive: info += "1.5"; break;
+        case StopBits::Two:          info += '2';   break;
+    }
+
+    return info;
+}
+
+// ===========================================================================
 // open
 // ===========================================================================
 

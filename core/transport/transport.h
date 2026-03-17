@@ -67,6 +67,10 @@ public:
         return state_;
     }
 
+    // Human-readable connection summary, e.g. "COM3 @ 115200 8N1".
+    // Subclasses should override to provide transport-specific details.
+    virtual std::string connectionInfo() const { return {}; }
+
     // --- callbacks ---------------------------------------------------------
     void onStateChanged(StateCallback cb) {
         std::lock_guard<std::mutex> lk(mutex_);
