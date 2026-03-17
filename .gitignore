@@ -3,3 +3,4 @@ reference/*
 .vscode
 docs/user/*
 *.exe
+todo.txt
