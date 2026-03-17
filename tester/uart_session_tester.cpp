@@ -27,7 +27,23 @@ void ConnectedHandler(neo::Session& session) {
     std::cout << "ConnectedHandler called" << std::endl;
     st = session.status();
     //done 测试status获取串口状态
-    std::cout << "Port: " << st.port << ", Baudrate: " << st.baudrate << std::endl;
+    const char* state_str = "Unknown";
+    switch (st.state) {
+        case neo::TransportState::Closed:
+            state_str = "Closed";
+            break;
+        case neo::TransportState::Open:
+            state_str = "Open";
+            break;
+        case neo::TransportState::Error:
+            state_str = "Error";
+            break;
+    }
+    std::cout << "Connected: " << (st.connected ? "true" : "false")
+              << ", State: " << state_str << std::endl;
+    if (!st.detail.empty()) {
+        std::cout << "Detail: " << st.detail << std::endl;
+    }
     //session.onMessage(onMessageHandler);  //done 测试消息回调
 }
 int main()
