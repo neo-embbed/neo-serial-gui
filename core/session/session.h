@@ -16,9 +16,9 @@
 namespace neo {
 
 struct SessionStatus {
-    bool        connected = false;
-    std::string port;
-    int         baudrate  = 0;
+    bool           connected = false;
+    TransportState state = TransportState::Closed;
+    std::string    detail;
 };
 
 class Session {

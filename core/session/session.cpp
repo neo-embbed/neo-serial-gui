@@ -7,7 +7,7 @@ Session::Session() = default;
 Session::~Session() {
     disconnect();
 }
-//LEGACY: ²ÎÊýÀàÐÍÊÇcfg£¬ÔÚ¹¹Ôìº¯ÊýÄÚ²¿´´½¨UartTransportÊµÀý£¬¸üÐÂµÄ°æ±¾Ö±½Ó´«ÊµÀý
+//LEGACY: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½cfgï¿½ï¿½ï¿½Ú¹ï¿½ï¿½ìº¯ï¿½ï¿½ï¿½Ú²ï¿½ï¿½ï¿½ï¿½ï¿½UartTransportÊµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÂµÄ°æ±¾Ö±ï¿½Ó´ï¿½Êµï¿½ï¿½
 /*
 bool Session::connect(const UartConfig& cfg) {
     if (transport_) {
@@ -19,6 +19,7 @@ bool Session::connect(const UartConfig& cfg) {
         std::lock_guard<std::mutex> lk(status_mutex_);
         status_.port      = cfg.port;
         status_.baudrate  = static_cast<int>(cfg.baudrate);
+        status_.state     = TransportState::Closed;
         status_.connected = false;
     }
 
@@ -31,7 +32,9 @@ bool Session::connect(const UartConfig& cfg) {
     transport_->onStateChanged([this](TransportState s, const std::string& detail) {
         {
             std::lock_guard<std::mutex> lk(status_mutex_);
+            status_.state     = s;
             status_.connected = (s == TransportState::Open);
+            status_.detail    = detail;
         }
 
         StateCallback cb;
@@ -58,6 +61,12 @@ bool Session::connect(std::unique_ptr<Transport> transport) {
     
     transport_ = std::move(transport);
     if (!transport_) return false;
+    {
+        std::lock_guard<std::mutex> lk(status_mutex_);
+        status_.state     = transport_->state();
+        status_.connected = (status_.state == TransportState::Open);
+        status_.detail    = transport_->connectionInfo();
+    }
 
     transport_->onMessage([this](const Message& msg) {
         appendMessage(msg.direction, msg.content, msg.timestamp);
@@ -92,9 +101,9 @@ void Session::disconnect() {
     transport_.reset();
 
     std::lock_guard<std::mutex> lk(status_mutex_);
+    status_.state     = TransportState::Closed;
     status_.connected = false;
-    status_.port.clear();
-    status_.baudrate = 0;
+    status_.detail.clear();
 }
 
 SessionStatus Session::status() const {
