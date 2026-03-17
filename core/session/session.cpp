@@ -7,12 +7,13 @@ Session::Session() = default;
 Session::~Session() {
     disconnect();
 }
-
+//LEGACY: 参数类型是cfg，在构造函数内部创建UartTransport实例，更新的版本直接传实例
+/*
 bool Session::connect(const UartConfig& cfg) {
     if (transport_) {
         disconnect();
     }
-
+    
     config_ = cfg;
     {
         std::lock_guard<std::mutex> lk(status_mutex_);
@@ -22,6 +23,41 @@ bool Session::connect(const UartConfig& cfg) {
     }
 
     transport_ = std::make_unique<UartTransport>(cfg);
+
+    transport_->onMessage([this](const Message& msg) {
+        appendMessage(msg.direction, msg.content, msg.timestamp);
+    });
+
+    transport_->onStateChanged([this](TransportState s, const std::string& detail) {
+        {
+            std::lock_guard<std::mutex> lk(status_mutex_);
+            status_.connected = (s == TransportState::Open);
+        }
+
+        StateCallback cb;
+        {
+            std::lock_guard<std::mutex> lk(cb_mutex_);
+            cb = user_state_cb_;
+        }
+        if (cb) cb(s, detail);
+    });
+
+    bool ok = transport_->open();
+    if (!ok) {
+        std::lock_guard<std::mutex> lk(status_mutex_);
+        status_.connected = false;
+    }
+    return ok;
+}
+    */
+
+bool Session::connect(std::unique_ptr<Transport> transport) {
+    if (transport_) {
+        disconnect();
+    }
+    
+    transport_ = std::move(transport);
+    if (!transport_) return false;
 
     transport_->onMessage([this](const Message& msg) {
         appendMessage(msg.direction, msg.content, msg.timestamp);

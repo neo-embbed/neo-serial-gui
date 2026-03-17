@@ -29,25 +29,26 @@ public:
     Session(const Session&)            = delete;
     Session& operator=(const Session&) = delete;
 
-    // ³õÊ¼»¯
-    bool connect(const UartConfig& cfg);
+    // ï¿½ï¿½Ê¼ï¿½ï¿½
+    //bool Session::connect(const UartConfig& cfg);
+    bool connect(std::unique_ptr<Transport> transport);
     void disconnect();
     SessionStatus status() const;
 
-    // Êý¾Ý·¢ËÍ
+    // ï¿½ï¿½ï¿½Ý·ï¿½ï¿½ï¿½
     bool send(const uint8_t* data, std::size_t size);
     bool send(const std::string& data);
 
-    // ÏûÏ¢»º´æ
+    // ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ï¿½
     std::vector<Message> getMessages(uint64_t after_id = 0,
                                     std::size_t limit = 200) const;
     void clearMessages();
 
-    // »Øµ÷×¢²á
+    // ï¿½Øµï¿½×¢ï¿½ï¿½
     void onMessage(MessageCallback cb);
     void onStateChanged(StateCallback cb);
 
-    // ¹¤¾ßº¯Êý
+    // ï¿½ï¿½ï¿½ßºï¿½ï¿½ï¿½
     static std::vector<PortInfo> listPorts();
 
 private:
@@ -55,8 +56,7 @@ private:
                     const std::string& content,
                     std::chrono::system_clock::time_point ts);
 
-    std::unique_ptr<UartTransport> transport_;
-    UartConfig                     config_{};
+    std::unique_ptr<Transport> transport_;
 
     mutable std::mutex status_mutex_;
     SessionStatus      status_{};
