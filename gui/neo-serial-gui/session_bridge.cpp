@@ -24,7 +24,7 @@ SessionBridge::SessionBridge(QObject *parent)
     // Transport回调在I/O线程上触发，通过queued信号转发到GUI线程
     session_.onStateChanged([this](neo::TransportState, const std::string &) {
         QMetaObject::invokeMethod(this, &SessionBridge::statusChanged,
-                                  Qt::QueuedConnection);
+                                Qt::QueuedConnection);
     });
 
     session_.onMessage([this](const neo::Message &msg) {

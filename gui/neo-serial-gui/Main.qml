@@ -126,12 +126,25 @@ Window {
         uiSettings.theme = name
     }
 
+    function normalizeColorValue(value) {
+        var text = String(value).trim()
+        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(text))
+            return text.toLowerCase()
+        return ""
+    }
+
     function setSettingColor(key, value) {
-        if (key === "letters") uiSettings.logColorLetters = value
-        else if (key === "digits") uiSettings.logColorDigits = value
-        else if (key === "symbols") uiSettings.logColorSymbols = value
-        else if (key === "tx") uiSettings.logColorTx = value
-        else if (key === "sys") uiSettings.logColorSys = value
+        var normalized = normalizeColorValue(value)
+        if (normalized.length === 0)
+            return false
+
+        if (key === "letters") uiSettings.logColorLetters = normalized
+        else if (key === "digits") uiSettings.logColorDigits = normalized
+        else if (key === "symbols") uiSettings.logColorSymbols = normalized
+        else if (key === "tx") uiSettings.logColorTx = normalized
+        else if (key === "sys") uiSettings.logColorSys = normalized
+        else return false
+        return true
     }
 
     function getSettingColor(key) {
@@ -142,6 +155,88 @@ Window {
         if (key === "sys") return uiSettings.logColorSys
         return "#000000"
     }
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+    }
+
+    function formatWhitespace(ch) {
+        if (ch === " ")
+            return "&nbsp;"
+        if (ch === "\t")
+            return "&nbsp;&nbsp;&nbsp;&nbsp;"
+        return "<br/>"
+    }
+
+    function wrapWithColor(text, color) {
+        return "<span style=\"color:" + color + ";\">" + text + "</span>"
+    }
+
+    function formatTerminalContent(text) {
+        var result = ""
+        var source = String(text)
+        for (var i = 0; i < source.length; ++i) {
+            var ch = source.charAt(i)
+            if (/\s/.test(ch)) {
+                result += formatWhitespace(ch)
+                continue
+            }
+
+            var color = uiSettings.logColorLetters
+            if (/[0-9]/.test(ch))
+                color = uiSettings.logColorDigits
+            else if (/[!-/:-@\[-`{-~]/.test(ch))
+                color = uiSettings.logColorSymbols
+            result += wrapWithColor(escapeHtml(ch), color)
+        }
+        return result
+    }
+
+    function formatTerminalContentWithColor(text, color) {
+        var result = ""
+        var source = String(text)
+        for (var i = 0; i < source.length; ++i) {
+            var ch = source.charAt(i)
+            if (/\s/.test(ch))
+                result += formatWhitespace(ch)
+            else
+                result += wrapWithColor(escapeHtml(ch), color)
+        }
+        return result
+    }
+
+    function formatLogLine(line) {
+        if (line.indexOf("[TX] ") === 0)
+            return wrapWithColor(escapeHtml("[TX] "), uiSettings.logColorTx)
+                 + formatTerminalContentWithColor(line.slice(5), uiSettings.logColorTx)
+        if (line.indexOf("[SYS] ") === 0)
+            return wrapWithColor(escapeHtml("[SYS] "), uiSettings.logColorSys)
+                 + formatTerminalContentWithColor(line.slice(6), uiSettings.logColorSys)
+        if (line.indexOf("[RX] ") === 0)
+            return wrapWithColor(escapeHtml("[RX] "), root.subText)
+                 + formatTerminalContent(line.slice(5))
+        return formatTerminalContent(line)
+    }
+
+    function buildRichLog(logText) {
+        if (!logText || logText.length === 0)
+            return ""
+
+        var lines = String(logText).split("\n")
+        var formatted = ""
+        for (var i = 0; i < lines.length; ++i) {
+            formatted += formatLogLine(lines[i])
+            if (i !== lines.length - 1)
+                formatted += "<br/>"
+        }
+        return formatted
+    }
+
+    readonly property string richLogText: buildRichLog(SessionBridge.log)
 
     Component.onCompleted: applyTheme(theme)
     onThemeChanged: applyTheme(theme)
@@ -388,7 +483,12 @@ Window {
             Layout.fillWidth: true
             Layout.preferredHeight: 28
             text: value
-            onEditingFinished: root.setSettingColor(targetKey, text)
+            onEditingFinished: {
+                if (!root.setSettingColor(targetKey, text)) {
+                    text = value
+                    root.showToast("颜色格式错误，请输入十六进制值，例如 #1f2328")
+                }
+            }
         }
         LightButton {
             text: "选择"
@@ -546,7 +646,7 @@ Window {
                                 anchors.margins: 10
                                 spacing: 8
                                 Label {
-                                    text: "通信日志样式（预留）"
+                                    text: "通信日志样式"
                                     font.pixelSize: 11
                                     color: root.subText
                                 }
@@ -854,10 +954,10 @@ Window {
                                     color: root.textColor
                                     font.family: uiSettings.logFontFamily
                                     font.pixelSize: uiSettings.logFontSize
-                                    text: SessionBridge.log
+                                    text: root.richLogText
                                     wrapMode: TextArea.Wrap
                                     background: null
-                                    textFormat: TextEdit.PlainText
+                                    textFormat: TextEdit.RichText
 
                                     onTextChanged: {
                                         if (autoScrollCheck.checked) {

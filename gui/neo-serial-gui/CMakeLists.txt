@@ -14,17 +14,21 @@ set(CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../core)
 set(CORE_SOURCES
     ${CORE_DIR}/session/session.cpp
     ${CORE_DIR}/transport/uart/uart_transport.cpp
+    ${CORE_DIR}/parameter/parameter_card.cpp
 )
 set(CORE_HEADERS
     ${CORE_DIR}/session/session.h
     ${CORE_DIR}/transport/transport.h
     ${CORE_DIR}/transport/uart/uart_transport.h
+    ${CORE_DIR}/parameter/parameter_card.h
 )
 
 qt_add_executable(appneo-serial-gui
     main.cpp
     session_bridge.h
     session_bridge.cpp
+    card_bridge.h
+    card_bridge.cpp
     ${CORE_SOURCES}
     ${CORE_HEADERS}
 )
