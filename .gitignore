@@ -1,7 +1,8 @@
-reference/*
+reference
 .vscode/*
 .vscode
 docs/user/*
 *.exe
 todo.txt
 gui/neo-serial-gui/build/*
+build
