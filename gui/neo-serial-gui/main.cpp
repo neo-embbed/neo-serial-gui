@@ -6,6 +6,9 @@ int main(int argc, char *argv[])
 {
     QQuickStyle::setStyle("Fusion");
     QGuiApplication app(argc, argv);
+    app.setOrganizationName("NeoEmbedded");
+    app.setOrganizationDomain("neo-embedded.local");
+    app.setApplicationName("neo-serial-gui");
 
     QQmlApplicationEngine engine;
     QObject::connect(

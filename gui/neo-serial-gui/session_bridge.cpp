@@ -122,10 +122,11 @@ void SessionBridge::pollMessages() {
 
     for (const auto &m : msgs) {
         QString prefix = directionToString(m.direction);
-        QString line = QStringLiteral("[%1] %2\n")
-                           .arg(prefix, QString::fromStdString(m.content));
+        QString content = QString::fromStdString(m.content);
+        QString line = QStringLiteral("[%1] %2\n").arg(prefix, content);
         log_.append(line);
         lastMsgId_ = m.id;
+        emit messageReceived(prefix, content);
     }
     emit logChanged();
 }

@@ -1,6 +1,8 @@
 #include "card_bridge.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QJsonDocument>
 #include <QDateTime>
 #include <QMetaObject>
@@ -82,6 +84,10 @@ bool CardBridge::saveToFile(const QString &path) {
     QJsonObject root;
     root["current"] = current;
     root["presets"] = presets_;
+
+    // Ensure parent directory exists
+    QFileInfo fi(path);
+    QDir().mkpath(fi.absolutePath());
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly))

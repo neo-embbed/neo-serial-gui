@@ -42,6 +42,15 @@ qt_add_qml_module(appneo-serial-gui
     VERSION 1.0
     QML_FILES
         Main.qml
+        modules/MainWindow.qml
+        modules/controls/LightButton.qml
+        modules/controls/PrimaryButton.qml
+        modules/controls/LightComboBox.qml
+        modules/controls/LightTextField.qml
+        modules/controls/LightSpinBox.qml
+        modules/controls/LightRadio.qml
+        modules/controls/LightCheckBox.qml
+        modules/controls/ColorField.qml
 )
 
 set_target_properties(appneo-serial-gui PROPERTIES

@@ -651,13 +651,23 @@ Window {
                             if (Math.abs(newScale - oldScale) < 0.0001)
                                 return
 
-                            var p = wheel.position
-                            var sceneX = (p.x - cardArea.cameraX) / oldScale
-                            var sceneY = (p.y - cardArea.cameraY) / oldScale
+                            // Qt6 WheelEvent doesn't consistently expose `position` across versions;
+                            // fall back to `x/y` when needed.
+                            var px = (wheel.x !== undefined) ? wheel.x
+                                   : (wheel.position && wheel.position.x !== undefined) ? wheel.position.x
+                                   : (wheel.point && wheel.point.position && wheel.point.position.x !== undefined) ? wheel.point.position.x
+                                   : 0
+                            var py = (wheel.y !== undefined) ? wheel.y
+                                   : (wheel.position && wheel.position.y !== undefined) ? wheel.position.y
+                                   : (wheel.point && wheel.point.position && wheel.point.position.y !== undefined) ? wheel.point.position.y
+                                   : 0
+
+                            var sceneX = (px - cardArea.cameraX) / oldScale
+                            var sceneY = (py - cardArea.cameraY) / oldScale
 
                             cardArea.cameraScale = newScale
-                            cardArea.cameraX = p.x - sceneX * newScale
-                            cardArea.cameraY = p.y - sceneY * newScale
+                            cardArea.cameraX = px - sceneX * newScale
+                            cardArea.cameraY = py - sceneY * newScale
                             wheel.accepted = true
                         }
                     }
@@ -674,6 +684,81 @@ Window {
                             cardArea.cameraX += dx
                             cardArea.cameraY += dy
                             lastTranslation = Qt.point(translation.x, translation.y)
+                        }
+                    }
+
+                    // Offscreen card indicators
+                    Item {
+                        id: offscreenLayer
+                        anchors.fill: parent
+                        z: 10000
+
+                        Repeater {
+                            model: CardBridge.cardCount
+                            delegate: Item {
+                                readonly property var cardInfo: CardBridge.cardAt(index)
+                                readonly property string cardId: (cardInfo && cardInfo.id) ? cardInfo.id : ""
+                                readonly property real cardW: root.getCardLayout(cardId, "w", 170)
+                                readonly property real cardH: root.getCardLayout(cardId, "h", 130)
+                                readonly property real cardX: root.getCardLayout(cardId, "x", 12 + (index % 3) * 170)
+                                readonly property real cardY: root.getCardLayout(cardId, "y", 12 + Math.floor(index / 3) * 150)
+                                readonly property real centerX: cardX + cardW / 2.0
+                                readonly property real centerY: cardY + cardH / 2.0
+                                readonly property real viewX: cardArea.cameraX + centerX * cardArea.cameraScale
+                                readonly property real viewY: cardArea.cameraY + centerY * cardArea.cameraScale
+                                readonly property real halfW: (cardW * cardArea.cameraScale) / 2.0
+                                readonly property real halfH: (cardH * cardArea.cameraScale) / 2.0
+                                // Avoid names like `left/right/top/bottom` (reserved anchor line properties on Item)
+                                readonly property real viewLeft: viewX - halfW
+                                readonly property real viewRight: viewX + halfW
+                                readonly property real viewTop: viewY - halfH
+                                readonly property real viewBottom: viewY + halfH
+                                // Show indicator only when the card is completely offscreen (no intersection)
+                                readonly property bool completelyOffscreen: (viewRight < 0
+                                                                           || viewLeft > cardViewport.width
+                                                                           || viewBottom < 0
+                                                                           || viewTop > cardViewport.height)
+                                readonly property color cardColor: (cardInfo && cardInfo.color) ? cardInfo.color : root.primary
+
+                                visible: cardId.length > 0 && completelyOffscreen
+                                width: 44
+                                height: 44
+
+                                readonly property real pad: 16
+                                readonly property real clampedX: Math.max(pad, Math.min(cardViewport.width - pad, viewX))
+                                readonly property real clampedY: Math.max(pad, Math.min(cardViewport.height - pad, viewY))
+                                x: clampedX - width / 2.0
+                                y: clampedY - height / 2.0
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: width / 2
+                                    color: "#000000"
+                                    opacity: 0.35
+                                    border.color: cardColor
+                                    border.width: 2
+                                }
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: ">"
+                                    font.pixelSize: 22
+                                    color: "#ffffff"
+                                    rotation: Math.atan2(viewY - clampedY, viewX - clampedX) * 180 / Math.PI
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    acceptedButtons: Qt.LeftButton
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        // Pan to bring the card closer to center (keep current zoom)
+                                        cardArea.cameraX = cardViewport.width / 2.0 - centerX * cardArea.cameraScale
+                                        cardArea.cameraY = cardViewport.height / 2.0 - centerY * cardArea.cameraScale
+                                    }
+                                }
+                            }
                         }
                     }
                 }
