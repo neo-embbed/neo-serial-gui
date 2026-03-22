@@ -1,8 +1,8 @@
 <p align="center">
-  <h1 align="center">Neo UART Assistant</h1>
+  <h1 align="center">Neo Serial Assistant</h1>
   <p align="center">
     <strong>桌面端串口调试 & 实时数据监测工具</strong><br/>
-    用正则表达式从串口数据流中抓取关键参数，以可拖拽的监测卡片实时呈现
+    用正则表达式从串口数据流中抓取关键参数，高度自定义配置可拖拽监测、控制卡片
   </p>
 </p>
 
@@ -59,10 +59,30 @@
 
 ### 构建
 
-```bash
+推荐直接在项目入口目录 `gui/neo-serial-gui` 使用 `CMakePresets.json`：
+
+```powershell
 cd gui/neo-serial-gui
-cmake -B build -DCMAKE_PREFIX_PATH=<你的Qt安装路径>
-cmake --build build
+cmake --preset qt6-mingw-debug
+cmake --build --preset build-debug
+```
+
+如果你的 Qt 安装路径和当前机器不一致，可先修改 [gui/neo-serial-gui/CMakePresets.json](gui/neo-serial-gui/CMakePresets.json)：
+
+```json
+"CMAKE_PREFIX_PATH": "C:/Qt/6.9.0/mingw_64"
+```
+
+若你想手动执行等价命令，对应的是：
+
+```powershell
+cmake -S gui/neo-serial-gui -B out/build/qt6-mingw-debug -G Ninja `
+  -DCMAKE_BUILD_TYPE=Debug `
+  -DCMAKE_PREFIX_PATH=C:/Qt/6.9.0/mingw_64 `
+  -DCMAKE_MAKE_PROGRAM=C:/Qt/Tools/Ninja/ninja.exe `
+  -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
+  -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
+cmake --build out/build/qt6-mingw-debug
 ```
 
 ### 运行
