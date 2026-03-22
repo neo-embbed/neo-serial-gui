@@ -18,7 +18,7 @@
 ---
 
 <p align="center">
-  <img src="img/screenshot.png" width="820" alt="Neo UART Assistant 界面截图"/>
+  <img src="img/screenshot.png" width="820" alt="界面截图"/>
 </p>
 
 ## 功能亮点
