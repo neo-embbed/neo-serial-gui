@@ -42,6 +42,8 @@ public:
     Q_INVOKABLE int  addCard(const QString &name, const QString &pattern,
                              const QString &type, const QString &unit,
                              const QString &color);
+    Q_INVOKABLE int  addControlCard(const QString &name, const QString &sendText,
+                                    const QString &color = QString());
     Q_INVOKABLE void removeCard(int index);
     Q_INVOKABLE void updateCard(int index, const QVariantMap &props);
     Q_INVOKABLE QVariantMap cardAt(int index) const;
@@ -67,8 +69,10 @@ signals:
 
 private:
     struct CardEntry {
+        QString kind = QStringLiteral("monitor");
         int id = 0;
         std::unique_ptr<neo::ParameterCard> card;
+        QString sendText;
         QString createdAt;
     };
 

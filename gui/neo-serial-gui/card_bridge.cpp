@@ -136,11 +136,34 @@ int CardBridge::addCard(const QString &name, const QString &pattern,
     cfg.enabled = true;
 
     CardEntry entry;
+    entry.kind      = QStringLiteral("monitor");
     entry.id        = nextCardId();
     entry.card      = std::make_unique<neo::ParameterCard>(cfg);
     entry.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     wireCallback(entry);
+    cards_.push_back(std::move(entry));
+    emit cardsChanged();
+    return cards_.back().id;
+}
+
+int CardBridge::addControlCard(const QString &name, const QString &sendText,
+                               const QString &color) {
+    CardEntry entry;
+    entry.kind      = QStringLiteral("control");
+    entry.id        = nextCardId();
+    entry.sendText  = sendText;
+    entry.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
+    neo::CardConfig cfg;
+    cfg.name    = name.toStdString();
+    cfg.pattern = "";
+    cfg.type    = neo::CardType::Numeric;
+    cfg.unit    = "";
+    cfg.color   = color.isEmpty() ? std::string("#0e7a68") : color.toStdString();
+    cfg.enabled = true;
+    entry.card  = std::make_unique<neo::ParameterCard>(cfg);
+
     cards_.push_back(std::move(entry));
     emit cardsChanged();
     return cards_.back().id;
@@ -159,6 +182,25 @@ void CardBridge::updateCard(int index, const QVariantMap &props) {
         return;
 
     auto &entry = cards_[index];
+    if (props.contains("kind"))
+        entry.kind = props["kind"].toString();
+
+    if (entry.kind == QStringLiteral("control")) {
+        neo::CardConfig cfg = entry.card ? entry.card->config() : neo::CardConfig{};
+        if (props.contains("name"))    cfg.name    = props["name"].toString().toStdString();
+        if (props.contains("color"))   cfg.color   = props["color"].toString().toStdString();
+        if (props.contains("enabled")) cfg.enabled = props["enabled"].toBool();
+        if (props.contains("send_text")) entry.sendText = props["send_text"].toString();
+
+        if (!entry.card)
+            entry.card = std::make_unique<neo::ParameterCard>(cfg);
+        else
+            entry.card->updateConfig(cfg);
+
+        emit cardsChanged();
+        return;
+    }
+
     neo::CardConfig cfg = entry.card->config();
 
     if (props.contains("name"))    cfg.name    = props["name"].toString().toStdString();
@@ -183,12 +225,14 @@ QVariantMap CardBridge::cardAt(int index) const {
     const auto &cfg   = entry.card->config();
 
     vm["id"]         = entry.id;
+    vm["kind"]       = entry.kind;
     vm["name"]       = QString::fromStdString(cfg.name);
     vm["pattern"]    = QString::fromStdString(cfg.pattern);
     vm["type"]       = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
     vm["unit"]       = QString::fromStdString(cfg.unit);
     vm["color"]      = QString::fromStdString(cfg.color);
     vm["enabled"]    = cfg.enabled;
+    vm["send_text"]  = entry.sendText;
     vm["created_at"] = entry.createdAt;
     return vm;
 }
@@ -240,6 +284,8 @@ void CardBridge::deletePreset(const QString &name) {
 void CardBridge::feed(const QString &line) {
     std::string str = line.toStdString();
     for (auto &entry : cards_) {
+        if (entry.kind != QStringLiteral("monitor") || !entry.card)
+            continue;
         entry.card->feed(str);
     }
 }
@@ -252,6 +298,8 @@ QVariantMap CardBridge::cardValue(int index) const {
         return vm;
 
     const auto &entry = cards_[index];
+    if (entry.kind != QStringLiteral("monitor") || !entry.card)
+        return vm;
     if (!entry.card->hasValue())
         return vm;
 
@@ -271,6 +319,8 @@ QVariantMap CardBridge::cardValue(int index) const {
 QVariantList CardBridge::cardHistory(int index, int afterId, int limit) const {
     QVariantList list;
     if (index < 0 || index >= static_cast<int>(cards_.size()))
+        return list;
+    if (cards_[index].kind != QStringLiteral("monitor") || !cards_[index].card)
         return list;
 
     auto history = cards_[index].card->getHistory(
@@ -292,6 +342,8 @@ QVariantList CardBridge::cardHistory(int index, int afterId, int limit) const {
 
 void CardBridge::clearCardHistory(int index) {
     if (index < 0 || index >= static_cast<int>(cards_.size()))
+        return;
+    if (cards_[index].kind != QStringLiteral("monitor") || !cards_[index].card)
         return;
     cards_[index].card->clearHistory();
     pendingValueUpdates_.remove(cards_[index].id);
@@ -315,12 +367,14 @@ QJsonObject CardBridge::configToJson(const CardEntry &entry) {
     const auto &cfg = entry.card->config();
     QJsonObject obj;
     obj["id"]         = entry.id;
+    obj["kind"]       = entry.kind;
     obj["name"]       = QString::fromStdString(cfg.name);
     obj["pattern"]    = QString::fromStdString(cfg.pattern);
     obj["type"]       = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
     obj["enabled"]    = cfg.enabled;
     obj["unit"]       = QString::fromStdString(cfg.unit);
     obj["color"]      = QString::fromStdString(cfg.color);
+    obj["send_text"]  = entry.sendText;
     obj["created_at"] = entry.createdAt;
     return obj;
 }
@@ -342,11 +396,14 @@ void CardBridge::cardsFromJson(const QJsonArray &arr) {
         QJsonObject obj = val.toObject();
 
         CardEntry entry;
+        entry.kind      = obj.value("kind").toString(QStringLiteral("monitor"));
         entry.id        = obj.value("id").toInt();
-        entry.card      = std::make_unique<neo::ParameterCard>(configFromJson(obj));
+        entry.sendText  = obj.value("send_text").toString();
         entry.createdAt = obj.value("created_at").toString();
+        entry.card      = std::make_unique<neo::ParameterCard>(configFromJson(obj));
 
-        wireCallback(entry);
+        if (entry.kind == QStringLiteral("monitor"))
+            wireCallback(entry);
         cards_.push_back(std::move(entry));
     }
     emit cardsChanged();

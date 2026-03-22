@@ -112,6 +112,7 @@ Window {
     property var cardLayoutMap: ({})
     property int cardZCounter: 1000
     property bool gridSnapEnabled: cardLayoutSettings.gridSnapEnabled
+    property bool addCardMenuOpen: false
     readonly property real cardGridSize: 20
     readonly property color cardGridColor: Qt.rgba(panelBorder.r, panelBorder.g, panelBorder.b, 0.55)
 
@@ -162,7 +163,11 @@ Window {
     function openCardEditor(cardIndex) {
         if (cardIndex < 0 || cardIndex >= CardBridge.cardCount)
             return
-        addCardPopup.openForEdit(cardIndex)
+        var info = CardBridge.cardAt(cardIndex)
+        if (info.kind === "control")
+            controlCardPopup.openForEdit(cardIndex)
+        else
+            addCardPopup.openForEdit(cardIndex)
     }
 
     function raiseCard(cardItem) {
@@ -804,7 +809,7 @@ Window {
                 Label {
                     visible: CardBridge.cardCount === 0
                     anchors.centerIn: parent
-                    text: "点击右上角 + 新建监测卡片"
+                    text: "点击右上角 + 新建卡片"
                     color: root.subText
                 }
 
@@ -1011,6 +1016,8 @@ Window {
                         readonly property real minW: 140
                         readonly property real minH: 100
                         readonly property real scaleFactor: Math.min(width / minW, height / minH)
+                        readonly property bool controlCard: cardInfo.kind === "control"
+                        readonly property bool monitorCard: !controlCard
                         readonly property bool numericCard: cardInfo.type === "numeric"
                         readonly property int chartHistoryLimit: 200
 
@@ -1035,7 +1042,7 @@ Window {
                         }
 
                         function reloadHistory() {
-                            if (!numericCard) {
+                            if (!monitorCard || !numericCard) {
                                 historyData = []
                                 return
                             }
@@ -1050,7 +1057,7 @@ Window {
                         }
 
                         function appendHistoryPoint(value) {
-                            if (!numericCard)
+                            if (!monitorCard || !numericCard)
                                 return
                             var point = normalizeHistoryPoint(value)
                             if (!point)
@@ -1075,8 +1082,9 @@ Window {
 
                         onCardIndexChanged: reloadHistory()
                         onNumericCardChanged: reloadHistory()
+                        onMonitorCardChanged: reloadHistory()
                         onShowChartChanged: {
-                            if (showChart)
+                            if (showChart && monitorCard)
                                 reloadHistory()
                             else
                                 historyData = []
@@ -1118,20 +1126,29 @@ Window {
                             }
 
                             // Delete button (subtle) — anchored to rightmost position
-                            Text {
+                            Rectangle {
                                 id: deleteText
                                 anchors.right: parent.right
                                 anchors.rightMargin: 6
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "×"
-                                font.pixelSize: Math.max(13, 13 * cardWidget.scaleFactor)
-                                color: root.subText
-                                opacity: deleteMA.containsMouse ? 1.0 : 0.3
+                                width: Math.max(18, 18 * cardWidget.scaleFactor)
+                                height: width
+                                radius: width / 2
+                                color: deleteMA.pressed ? root.buttonPress
+                                     : deleteMA.containsMouse ? root.buttonHover : "transparent"
+                                border.color: "transparent"
+                                opacity: deleteMA.containsMouse ? 1.0 : 0.7
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "×"
+                                    font.pixelSize: Math.max(12, 12 * cardWidget.scaleFactor)
+                                    color: root.subText
+                                }
 
                                 MouseArea {
                                     id: deleteMA
                                     anchors.fill: parent
-                                    anchors.margins: -4
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
@@ -1148,7 +1165,8 @@ Window {
                                 anchors.right: deleteText.left
                                 anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Math.max(48, cardWidget.width * 0.25)
+                                visible: cardWidget.monitorCard
+                                width: visible ? Math.max(48, cardWidget.width * 0.25) : 0
                                 height: Math.max(18, 18 * cardWidget.scaleFactor)
                                 radius: height / 2
                                 color: modeMA.pressed ? root.buttonPress
@@ -1165,6 +1183,7 @@ Window {
                                 MouseArea {
                                     id: modeMA
                                     anchors.fill: parent
+                                    enabled: cardWidget.monitorCard
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: cardWidget.showChart = !cardWidget.showChart
@@ -1230,7 +1249,7 @@ Window {
                                 anchors.left: parent.left
                                 anchors.top: parent.top
                                 anchors.bottom: parent.bottom
-                                anchors.right: modeButton.left
+                                anchors.right: cardWidget.monitorCard ? modeButton.left : deleteText.left
                                 cursorShape: Qt.SizeAllCursor
                                 property point pressPos
                                 property point pressItemPos
@@ -1268,16 +1287,11 @@ Window {
                             anchors.margins: 8
                             anchors.topMargin: 4
                             spacing: 2
-                            visible: !cardWidget.showChart
+                            visible: cardWidget.monitorCard && !cardWidget.showChart
 
-                            MouseArea {
-                                anchors.fill: parent
+                            TapHandler {
                                 acceptedButtons: Qt.LeftButton
-                                propagateComposedEvents: true
-                                onDoubleClicked: {
-                                    mouse.accepted = true
-                                    cardWidget.root.openCardEditor(cardWidget.cardIndex)
-                                }
+                                onDoubleTapped: cardWidget.root.openCardEditor(cardWidget.cardIndex)
                             }
 
                             Item { Layout.fillHeight: true; width: 1; height: 1 }
@@ -1331,16 +1345,11 @@ Window {
                             anchors.bottom: parent.bottom
                             anchors.margins: 8
                             anchors.topMargin: 6
-                            visible: cardWidget.showChart
+                            visible: cardWidget.monitorCard && cardWidget.showChart
 
-                            MouseArea {
-                                anchors.fill: parent
+                            TapHandler {
                                 acceptedButtons: Qt.LeftButton
-                                propagateComposedEvents: true
-                                onDoubleClicked: {
-                                    mouse.accepted = true
-                                    cardWidget.root.openCardEditor(cardWidget.cardIndex)
-                                }
+                                onDoubleTapped: cardWidget.root.openCardEditor(cardWidget.cardIndex)
                             }
 
                             readonly property var points: cardWidget.historyData || []
@@ -1517,6 +1526,74 @@ Window {
                             }
                         }
 
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: cardTitleBar.bottom
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 8
+                            anchors.topMargin: 6
+                            spacing: 8
+                            visible: cardWidget.controlCard
+
+                            TapHandler {
+                                acceptedButtons: Qt.LeftButton
+                                onDoubleTapped: cardWidget.root.openCardEditor(cardWidget.cardIndex)
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: cardWidget.cardInfo.send_text || ""
+                                wrapMode: Text.WrapAnywhere
+                                maximumLineCount: 4
+                                elide: Text.ElideRight
+                                font.pixelSize: Math.max(9, 10 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+
+                            Item { width: 1; height: 1 }
+
+                            Rectangle {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: Math.max(72, parent.width * 0.45)
+                                height: Math.max(28, 28 * cardWidget.scaleFactor)
+                                radius: height / 2
+                                color: controlSendMa.pressed ? root.buttonPress
+                                     : controlSendMa.containsMouse ? root.buttonHover : root.buttonBg
+                                border.color: root.controlBorder
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "发送"
+                                    font.pixelSize: Math.max(10, 11 * cardWidget.scaleFactor)
+                                    color: cardWidget.cardColor
+                                }
+
+                                MouseArea {
+                                    id: controlSendMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        var payload = String(cardWidget.cardInfo.send_text || "")
+                                        if (!SessionBridge.connected) {
+                                            root.showToast("未连接串口，无法发送")
+                                            return
+                                        }
+                                        if (payload.length === 0) {
+                                            root.showToast("控制卡片发送文本为空")
+                                            return
+                                        }
+                                        if (!SessionBridge.send(payload)) {
+                                            root.showToast("发送失败，连接可能已断开")
+                                            return
+                                        }
+                                        root.showToast("已发送：" + payload)
+                                    }
+                                }
+                            }
+                        }
+
                         // ── Edge & corner resize handles ──
                         // Each handle stores the press origin and initial rect,
                         // then adjusts x/y/width/height based on which edge is being dragged.
@@ -1607,6 +1684,14 @@ Window {
                 }
 
                 // Add card button (top-right corner)
+                MouseArea {
+                    anchors.fill: parent
+                    visible: root.addCardMenuOpen
+                    z: 999999
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: root.addCardMenuOpen = false
+                }
+
                 Rectangle {
                     id: addCardBtn
                     anchors.top: parent.top
@@ -1633,7 +1718,72 @@ Window {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: addCardPopup.openForCreate()
+                        onClicked: root.addCardMenuOpen = !root.addCardMenuOpen
+                    }
+                }
+
+                Column {
+                    anchors.top: addCardBtn.bottom
+                    anchors.topMargin: 6
+                    anchors.right: addCardBtn.right
+                    spacing: 6
+                    z: 1000000
+                    visible: root.addCardMenuOpen
+
+                    Rectangle {
+                        width: 124
+                        height: 28
+                        radius: root.cr
+                        color: monitorCardMa.pressed ? root.buttonPress
+                             : monitorCardMa.containsMouse ? root.buttonHover
+                             : root.buttonBg
+                        border.color: root.controlBorder
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: "新建监测卡片"
+                            font.pixelSize: 10
+                            color: root.textColor
+                        }
+
+                        MouseArea {
+                            id: monitorCardMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.addCardMenuOpen = false
+                                addCardPopup.openForCreate()
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 124
+                        height: 28
+                        radius: root.cr
+                        color: controlCardMa.pressed ? root.buttonPress
+                             : controlCardMa.containsMouse ? root.buttonHover
+                             : root.buttonBg
+                        border.color: root.controlBorder
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: "新建控制卡片"
+                            font.pixelSize: 10
+                            color: root.textColor
+                        }
+
+                        MouseArea {
+                            id: controlCardMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.addCardMenuOpen = false
+                                controlCardPopup.openForCreate()
+                            }
+                        }
                     }
                 }
             }
@@ -2397,6 +2547,154 @@ Window {
     }
 
     // ── Functions ────────────────────────────────────────────
+
+    Popup {
+        id: controlCardPopup
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        parent: root.contentItem
+        padding: 0
+        width: 420
+        height: Math.min(root.height - 24, controlCardContent.implicitHeight + 24)
+        x: (root.width - width) / 2
+        y: Math.max(12, (root.height - height) / 2)
+
+        property bool editMode: false
+        property int editingCardIndex: -1
+
+        function resetForm() {
+            controlCardName.text = ""
+            controlCardSendText.text = ""
+        }
+
+        function openForCreate() {
+            editMode = false
+            editingCardIndex = -1
+            resetForm()
+            open()
+        }
+
+        function openForEdit(cardIndex) {
+            var info = CardBridge.cardAt(cardIndex)
+            if (!info || info.kind !== "control")
+                return
+            editMode = true
+            editingCardIndex = cardIndex
+            controlCardName.text = info.name || ""
+            controlCardSendText.text = info.send_text || ""
+            open()
+        }
+
+        background: Rectangle {
+            radius: root.cr
+            color: root.panelBg
+            border.color: root.panelBorder
+        }
+
+        onOpened: controlCardName.forceActiveFocus()
+
+        contentItem: Item {
+            implicitHeight: controlCardContent.implicitHeight
+            implicitWidth: controlCardContent.implicitWidth
+
+            ColumnLayout {
+                id: controlCardContent
+                width: controlCardPopup.width - 32
+                x: 16
+                spacing: 10
+
+                Item { Layout.preferredHeight: 4 }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        text: controlCardPopup.editMode ? "编辑控制卡片" : "新建控制卡片"
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: root.textColor
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    LightButton {
+                        text: "关闭"
+                        onClicked: controlCardPopup.close()
+                    }
+                }
+
+                Label { text: "标题"; font.pixelSize: 11; color: root.subText }
+                LightTextField {
+                    id: controlCardName
+                    Layout.fillWidth: true
+                    placeholderText: "例如：启动设备"
+                }
+
+                Label { text: "串口发送文本"; font.pixelSize: 11; color: root.subText }
+                TextArea {
+                    id: controlCardSendText
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 120
+                    font.pixelSize: 12
+                    color: root.textColor
+                    placeholderText: "输入点击发送按钮后要发送的文本"
+                    placeholderTextColor: root.subText
+                    wrapMode: TextEdit.Wrap
+                    leftPadding: 6
+                    rightPadding: 6
+                    topPadding: 6
+                    bottomPadding: 6
+                    background: Rectangle {
+                        radius: root.cr
+                        color: root.controlBg
+                        border.color: root.controlBorder
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+
+                    PrimaryButton {
+                        text: controlCardPopup.editMode ? "保存" : "创建"
+                        enabled: controlCardName.text.trim().length > 0
+                        onClicked: {
+                            if (controlCardPopup.editMode) {
+                                CardBridge.updateCard(controlCardPopup.editingCardIndex, {
+                                    "name": controlCardName.text,
+                                    "send_text": controlCardSendText.text
+                                })
+                                var editedItem = cardRepeater.count > controlCardPopup.editingCardIndex
+                                               ? cardRepeater.itemAt(controlCardPopup.editingCardIndex) : null
+                                if (editedItem)
+                                    editedItem.cardInfo = CardBridge.cardAt(controlCardPopup.editingCardIndex)
+                                root.autoSaveCards()
+                                controlCardPopup.close()
+                                root.showToast("已更新控制卡片：" + controlCardName.text)
+                            } else {
+                                CardBridge.addControlCard(controlCardName.text, controlCardSendText.text)
+                                var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
+                                var vw = cardArea.width || 400
+                                var vh = cardArea.height || 300
+                                var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
+                                var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
+                                spawnX = root.snapToGrid(spawnX)
+                                spawnY = root.snapToGrid(spawnY)
+                                root.setCardLayout(newId, "x", spawnX)
+                                root.setCardLayout(newId, "y", spawnY)
+                                root.autoSaveCards()
+                                controlCardPopup.close()
+                                root.showToast("已创建控制卡片：" + controlCardName.text)
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.preferredHeight: 4 }
+            }
+        }
+    }
 
     function doConnect() {
         var port = manualPort.text.length > 0
