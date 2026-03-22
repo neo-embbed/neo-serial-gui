@@ -5,6 +5,8 @@
 #include <QQmlEngine>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QHash>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -25,6 +27,7 @@ class CardBridge : public QObject {
 public:
     explicit CardBridge(QObject *parent = nullptr);
     static CardBridge *create(QQmlEngine *, QJSEngine *);
+    static CardBridge &instance();
 
     QString     currentName() const;
     void        setCurrentName(const QString &name);
@@ -75,11 +78,19 @@ private:
     QJsonArray cardsToJson() const;
     void       cardsFromJson(const QJsonArray &arr);
     void       wireCallback(CardEntry &entry);
+    void       queueCardValueUpdate(int cardId, QVariantMap value);
+    void       flushPendingCardValueUpdates();
     int        nextCardId() const;
+
+    static CardBridge *instance_;
 
     QString                 currentName_;
     std::vector<CardEntry>  cards_;
     QJsonArray              presets_;
+    QHash<int, QVariantMap> pendingValueUpdates_;
+    QTimer                  valueFlushTimer_;
+
+    static constexpr int kValueFlushIntervalMs = 50;
 };
 
 #endif // CARD_BRIDGE_H

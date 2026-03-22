@@ -5,6 +5,7 @@
 #include <QQmlEngine>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantList>
 
 #include "../../core/session/session.h"
 
@@ -38,16 +39,23 @@ signals:
     void statusChanged();
     void portListChanged();
     void logChanged();
+    void logCleared();
+    void logRebuilt();
     void messageReceived(const QString &direction, const QString &content);
+    void messagesReceived(const QVariantList &messages);
 
 private:
     void pollMessages();
+    bool trimLogIfNeeded();
 
     neo::Session session_;
     QStringList ports_;
     QString log_;
+    qsizetype logLineCount_ = 0;
     uint64_t lastMsgId_ = 0;
     QTimer pollTimer_;
+
+    static constexpr qsizetype kMaxLogLines = 500;
 };
 
 #endif // SESSION_BRIDGE_H

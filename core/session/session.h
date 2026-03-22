@@ -64,7 +64,7 @@ private:
     mutable std::mutex  msg_mutex_;
     std::deque<Message> messages_;
     uint64_t            next_id_ = 1;
-    static constexpr std::size_t kMaxMessages = 20000;
+    static constexpr std::size_t kMaxMessages = 500;
 
     mutable std::mutex cb_mutex_;
     MessageCallback    user_msg_cb_;

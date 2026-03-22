@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtCore
+import QtQml.Models
 import "controls"
 
 Window {
@@ -214,49 +215,69 @@ Window {
             .replace(/"/g, "&quot;")
     }
 
-    function formatWhitespace(ch) {
-        if (ch === " ")
-            return "&nbsp;"
-        if (ch === "\t")
-            return "&nbsp;&nbsp;&nbsp;&nbsp;"
-        return "<br/>"
+    function wrapWithColor(text, color) {
+        return "<font color=\"" + color + "\">" + text + "</font>"
     }
 
-    function wrapWithColor(text, color) {
-        return "<span style=\"color:" + color + ";\">" + text + "</span>"
+    function preserveWhitespaceHtml(text) {
+        var result = ""
+        var source = String(text)
+        for (var i = 0; i < source.length; ++i) {
+            var ch = source.charAt(i)
+            if (ch === " ")
+                result += "&nbsp;"
+            else if (ch === "\t")
+                result += "&nbsp;&nbsp;&nbsp;&nbsp;"
+            else if (ch === "\n")
+                result += "<br/>"
+            else
+                result += escapeHtml(ch)
+        }
+        return result
+    }
+
+    function classifyLogChar(ch) {
+        if (/[0-9]/.test(ch))
+            return uiSettings.logColorDigits
+        if (/[!-/:-@\[-`{-~]/.test(ch))
+            return uiSettings.logColorSymbols
+        return uiSettings.logColorLetters
     }
 
     function formatTerminalContent(text) {
         var result = ""
         var source = String(text)
+        var runColor = ""
+        var runText = ""
+
+        function flushRun() {
+            if (runText.length === 0)
+                return
+            result += wrapWithColor(preserveWhitespaceHtml(runText), runColor)
+            runText = ""
+        }
+
         for (var i = 0; i < source.length; ++i) {
             var ch = source.charAt(i)
             if (/\s/.test(ch)) {
-                result += formatWhitespace(ch)
+                flushRun()
+                result += preserveWhitespaceHtml(ch)
                 continue
             }
 
-            var color = uiSettings.logColorLetters
-            if (/[0-9]/.test(ch))
-                color = uiSettings.logColorDigits
-            else if (/[!-/:-@\[-`{-~]/.test(ch))
-                color = uiSettings.logColorSymbols
-            result += wrapWithColor(escapeHtml(ch), color)
+            var color = classifyLogChar(ch)
+            if (runText.length > 0 && color !== runColor)
+                flushRun()
+            runColor = color
+            runText += ch
         }
+
+        flushRun()
         return result
     }
 
     function formatTerminalContentWithColor(text, color) {
-        var result = ""
-        var source = String(text)
-        for (var i = 0; i < source.length; ++i) {
-            var ch = source.charAt(i)
-            if (/\s/.test(ch))
-                result += formatWhitespace(ch)
-            else
-                result += wrapWithColor(escapeHtml(ch), color)
-        }
-        return result
+        return wrapWithColor(preserveWhitespaceHtml(text), color)
     }
 
     function formatLogLine(line) {
@@ -272,21 +293,9 @@ Window {
         return formatTerminalContent(line)
     }
 
-    function buildRichLog(logText) {
-        if (!logText || logText.length === 0)
-            return ""
-
-        var lines = String(logText).split("\n")
-        var formatted = ""
-        for (var i = 0; i < lines.length; ++i) {
-            formatted += formatLogLine(lines[i])
-            if (i !== lines.length - 1)
-                formatted += "<br/>"
-        }
-        return formatted
+    ListModel {
+        id: logModel
     }
-
-    readonly property string richLogText: buildRichLog(SessionBridge.log)
 
     readonly property string cardDataPath: "data/monitor_cards.json"
 
@@ -294,13 +303,119 @@ Window {
         CardBridge.saveToFile(cardDataPath)
     }
 
+    function appendRichLogLines(lines) {
+        if (!lines || lines.length === 0)
+            return
+
+        for (var i = 0; i < lines.length; ++i) {
+            var line = lines[i]
+            if (line === undefined || line === null)
+                continue
+            logModel.append({
+                richText: formatLogLine(String(line).replace(/\n$/, ""))
+            })
+        }
+
+        // Batch trim: only cut when exceeding threshold by a margin,
+        // then remove a chunk at once to avoid per-message index shifts.
+        var limit = 200
+        var trimBatch = 50
+        if (logModel.count > limit + trimBatch)
+            logModel.remove(0, logModel.count - limit)
+
+        if (autoScrollCheck.checked) {
+            Qt.callLater(function() {
+                if (logModel.count > 0)
+                    logList.positionViewAtEnd()
+            })
+        }
+    }
+
+    function rebuildRichLogModel(logText) {
+        logModel.clear()
+        if (!logText || logText.length === 0)
+            return
+
+        var lines = String(logText).split("\n")
+        for (var i = 0; i < lines.length; ++i) {
+            if (i === lines.length - 1 && lines[i].length === 0)
+                continue
+            logModel.append({ richText: formatLogLine(lines[i]) })
+        }
+    }
+
+    function focusCameraOnCards() {
+        var n = CardBridge.cardCount
+        if (n === 0) return
+
+        // Compute bounding box of all cards
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (var i = 0; i < n; ++i) {
+            var info = CardBridge.cardAt(i)
+            var cx = getCardLayout(info.id, "x", 12 + (i % 3) * 170)
+            var cy = getCardLayout(info.id, "y", 12 + Math.floor(i / 3) * 150)
+            var cw = getCardLayout(info.id, "w", 170)
+            var ch = getCardLayout(info.id, "h", 130)
+            if (cx < minX) minX = cx
+            if (cy < minY) minY = cy
+            if (cx + cw > maxX) maxX = cx + cw
+            if (cy + ch > maxY) maxY = cy + ch
+        }
+
+        var bboxW = maxX - minX
+        var bboxH = maxY - minY
+        var centerX = minX + bboxW / 2.0
+        var centerY = minY + bboxH / 2.0
+
+        // Fit with padding, but don't zoom in beyond 1.0
+        var vw = cardArea.width || 400
+        var vh = cardArea.height || 300
+        var padding = 40
+        var scale = Math.min(1.0, (vw - padding * 2) / Math.max(1, bboxW),
+                                  (vh - padding * 2) / Math.max(1, bboxH))
+        scale = Math.max(cardArea.minCameraScale, scale)
+
+        cardArea.cameraScale = scale
+        cardArea.cameraX = vw / 2.0 - centerX * scale
+        cardArea.cameraY = vh / 2.0 - centerY * scale
+    }
+
     Component.onCompleted: {
         applyTheme(theme)
         loadCardLayout()
         initCardZCounter()
-        CardBridge.loadFromFile(cardDataPath)
+        var ok = CardBridge.loadFromFile(cardDataPath)
+        console.log("[Root] CardBridge.loadFromFile ok=", ok,
+                    "cardCount=", CardBridge.cardCount,
+                    "path=", cardDataPath)
+        rebuildRichLogModel(SessionBridge.log)
+        // Delay so cardArea has valid dimensions
+        Qt.callLater(focusCameraOnCards)
     }
     onThemeChanged: applyTheme(theme)
+
+    Connections {
+        target: SessionBridge
+
+        function onMessagesReceived(messages) {
+            var lines = []
+            for (var i = 0; i < messages.length; ++i) {
+                var msg = messages[i]
+                if (msg && msg.line !== undefined)
+                    lines.push(msg.line)
+            }
+            root.appendRichLogLines(lines)
+        }
+
+        function onLogCleared() {
+            logModel.clear()
+        }
+
+        function onLogRebuilt() {
+            // C++ side trimmed log_; QML logModel manages its own trimming
+            // independently via appendRichLogLines(), so no rebuild needed.
+        }
+    }
 
     // ── Toast notification ───────────────────────────────────
 
@@ -518,7 +633,7 @@ Window {
                                             color: root.subText
                                         }
                                         Text {
-                                            textFormat: Text.RichText
+                                            textFormat: Text.StyledText
                                             font.family: uiSettings.logFontFamily
                                             font.pixelSize: uiSettings.logFontSize
                                             color: root.textColor
@@ -617,14 +732,6 @@ Window {
                 readonly property real minCameraScale: 0.25
                 readonly property real maxCameraScale: 3.0
 
-                // Feed serial data to CardBridge
-                Connections {
-                    target: SessionBridge
-                    function onMessageReceived(direction, content) {
-                        CardBridge.feed(content)
-                    }
-                }
-
                 Label {
                     visible: CardBridge.cardCount === 0
                     anchors.centerIn: parent
@@ -698,10 +805,13 @@ Window {
                             delegate: Item {
                                 readonly property var cardInfo: CardBridge.cardAt(index)
                                 readonly property string cardId: (cardInfo && cardInfo.id) ? cardInfo.id : ""
-                                readonly property real cardW: root.getCardLayout(cardId, "w", 170)
-                                readonly property real cardH: root.getCardLayout(cardId, "h", 130)
-                                readonly property real cardX: root.getCardLayout(cardId, "x", 12 + (index % 3) * 170)
-                                readonly property real cardY: root.getCardLayout(cardId, "y", 12 + Math.floor(index / 3) * 150)
+
+                                // Read live position from the actual card delegate
+                                readonly property var liveCard: cardRepeater.count > index ? cardRepeater.itemAt(index) : null
+                                readonly property real cardW: liveCard ? liveCard.width : root.getCardLayout(cardId, "w", 170)
+                                readonly property real cardH: liveCard ? liveCard.height : root.getCardLayout(cardId, "h", 130)
+                                readonly property real cardX: liveCard ? liveCard.x : root.getCardLayout(cardId, "x", 12 + (index % 3) * 170)
+                                readonly property real cardY: liveCard ? liveCard.y : root.getCardLayout(cardId, "y", 12 + Math.floor(index / 3) * 150)
                                 readonly property real centerX: cardX + cardW / 2.0
                                 readonly property real centerY: cardY + cardH / 2.0
                                 readonly property real viewX: cardArea.cameraX + centerX * cardArea.cameraScale
@@ -765,6 +875,7 @@ Window {
 
                 Item {
                     id: cardScene
+                    property var wnd: root
                     parent: cardViewport
                     width: cardViewport.width
                     height: cardViewport.height
@@ -782,15 +893,22 @@ Window {
 
                      Rectangle {
                          id: cardWidget
+                         // 'root' id is not reachable from reparented Repeater delegates;
+                         // access it via cardScene.wnd which is set during construction.
+                         readonly property var root: parent.wnd
                          property int cardIndex: index
                          property var cardInfo: CardBridge.cardAt(index)
                          property var cardVal: ({})
+                         property var historyData: []
+                         property bool showChart: false
                          property string cardColor: cardInfo.color || root.primary
                         property int zOrder: root.getCardLayout(cardInfo.id, "z", 0)
 
                         readonly property real minW: 140
                         readonly property real minH: 100
                         readonly property real scaleFactor: Math.min(width / minW, height / minH)
+                        readonly property bool numericCard: cardInfo.type === "numeric"
+                        readonly property int chartHistoryLimit: 200
 
                         x: root.getCardLayout(cardInfo.id, "x", 12 + (index % 3) * 170)
                         y: root.getCardLayout(cardInfo.id, "y", 12 + Math.floor(index / 3) * 150)
@@ -802,24 +920,80 @@ Window {
                         color: root.controlBg
                         border.color: root.controlBorder
 
-                        Component.onCompleted: {
-                            cardVal = CardBridge.cardValue(cardIndex) || {}
-                            if (zOrder === 0)
-                                root.raiseCard(cardWidget)
+                        function normalizeHistoryPoint(point) {
+                            if (!point)
+                                return null
+                            var x = Number(point.timestamp_ms)
+                            var y = Number(point.numeric)
+                            if (isNaN(x) || isNaN(y))
+                                return null
+                            return { id: Number(point.id || 0), x: x, y: y }
                         }
+
+                        function reloadHistory() {
+                            if (!numericCard) {
+                                historyData = []
+                                return
+                            }
+                            var rawHistory = CardBridge.cardHistory(cardIndex, 0, chartHistoryLimit)
+                            var points = []
+                            for (var i = 0; i < rawHistory.length; ++i) {
+                                var point = normalizeHistoryPoint(rawHistory[i])
+                                if (point)
+                                    points.push(point)
+                            }
+                            historyData = points
+                        }
+
+                        function appendHistoryPoint(value) {
+                            if (!numericCard)
+                                return
+                            var point = normalizeHistoryPoint(value)
+                            if (!point)
+                                return
+                            var points = historyData ? historyData.slice() : []
+                            if (points.length > 0 && points[points.length - 1].id === point.id)
+                                points[points.length - 1] = point
+                            else
+                                points.push(point)
+                            if (points.length > chartHistoryLimit)
+                                points = points.slice(points.length - chartHistoryLimit)
+                            historyData = points
+                        }
+
+                        Component.onCompleted: {
+                            console.log("[CardWidget] completed cardIndex=", cardIndex,
+                                        "cardId=", cardInfo.id,
+                                        "name=", cardInfo.name,
+                                        "qmlCardCount=", CardBridge.cardCount)
+                            cardVal = CardBridge.cardValue(cardIndex) || {}
+                            reloadHistory()
+                            if (zOrder === 0)
+                                cardWidget.root.raiseCard(cardWidget)
+                        }
+
+                        onCardIndexChanged: reloadHistory()
+                        onNumericCardChanged: reloadHistory()
 
                         Connections {
                             target: CardBridge
                             function onCardValueUpdated(cardId, value) {
-                                if (cardId === cardWidget.cardInfo.id)
+                                console.log("[CardWidget] onCardValueUpdated cardId=", cardId,
+                                            "delegateCardId=", cardWidget.cardInfo.id,
+                                            "valueId=", value && value.id,
+                                            "raw=", value && value.raw)
+                                if (cardId === cardWidget.cardInfo.id) {
                                     cardWidget.cardVal = value
+                                    cardWidget.appendHistoryPoint(value)
+                                    console.log("[CardWidget] cardVal updated cardId=", cardId)
+                                }
                             }
                         }
 
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.AllButtons
-                            onPressed: root.raiseCard(cardWidget)
+                            onPressed: cardWidget.root.raiseCard(cardWidget)
                         }
 
                         // Title bar (draggable)
@@ -840,20 +1014,9 @@ Window {
                                 radius: root.cr
                             }
 
-                            Label {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 8
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: cardWidget.cardInfo.name || ""
-                                font.pixelSize: Math.max(10, 11 * cardWidget.scaleFactor)
-                                font.bold: true
-                                color: cardWidget.cardColor
-                                elide: Text.ElideRight
-                                width: parent.width - 30
-                            }
-
-                            // Delete button (subtle)
+                            // Delete button (subtle) — anchored to rightmost position
                             Text {
+                                id: deleteText
                                 anchors.right: parent.right
                                 anchors.rightMargin: 6
                                 anchors.verticalCenter: parent.verticalCenter
@@ -871,21 +1034,64 @@ Window {
                                     onClicked: {
                                         var idx = cardWidget.cardIndex
                                         CardBridge.removeCard(idx)
-                                        autoSaveCards()
-                                        showToast("已删除卡片")
+                                        cardWidget.root.autoSaveCards()
+                                        cardWidget.root.showToast("已删除卡片")
                                     }
                                 }
                             }
 
+                            Rectangle {
+                                id: modeButton
+                                anchors.right: deleteText.left
+                                anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.min(48, cardWidget.width * 0.25)
+                                height: Math.max(18, 18 * cardWidget.scaleFactor)
+                                radius: height / 2
+                                color: modeMA.pressed ? root.buttonPress
+                                     : modeMA.containsMouse ? root.buttonHover : root.buttonBg
+                                border.color: root.controlBorder
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: cardWidget.showChart ? "Chart" : "Value"
+                                    font.pixelSize: Math.max(8, 9 * cardWidget.scaleFactor)
+                                    color: cardWidget.showChart ? cardWidget.cardColor : root.subText
+                                }
+
+                                MouseArea {
+                                    id: modeMA
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: cardWidget.showChart = !cardWidget.showChart
+                                }
+                            }
+
+                            Label {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                anchors.right: modeButton.left
+                                anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: cardWidget.cardInfo.name || ""
+                                font.pixelSize: Math.max(10, 11 * cardWidget.scaleFactor)
+                                font.bold: true
+                                color: cardWidget.cardColor
+                                elide: Text.ElideRight
+                            }
+
                             MouseArea {
                                 id: dragMA
-                                anchors.fill: parent
-                                anchors.rightMargin: 24
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.right: modeButton.left
                                 cursorShape: Qt.SizeAllCursor
                                 property point pressPos
                                 property point pressItemPos
                                 onPressed: function(mouse) {
-                                    root.raiseCard(cardWidget)
+                                    cardWidget.root.raiseCard(cardWidget)
                                     pressPos = mapToItem(cardScene, mouse.x, mouse.y)
                                     pressItemPos = Qt.point(cardWidget.x, cardWidget.y)
                                 }
@@ -898,8 +1104,8 @@ Window {
                                     cardWidget.y = ny
                                 }
                                 onReleased: {
-                                    root.setCardLayout(cardWidget.cardInfo.id, "x", cardWidget.x)
-                                    root.setCardLayout(cardWidget.cardInfo.id, "y", cardWidget.y)
+                                    cardWidget.root.setCardLayout(cardWidget.cardInfo.id, "x", cardWidget.x)
+                                    cardWidget.root.setCardLayout(cardWidget.cardInfo.id, "y", cardWidget.y)
                                 }
                             }
                         }
@@ -909,10 +1115,11 @@ Window {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: cardTitleBar.bottom
-                            anchors.bottom: resizeHandle.top
+                            anchors.bottom: parent.bottom
                             anchors.margins: 8
                             anchors.topMargin: 4
                             spacing: 2
+                            visible: !cardWidget.showChart
 
                             Item { Layout.fillHeight: true; width: 1; height: 1 }
 
@@ -957,47 +1164,249 @@ Window {
                             }
                         }
 
-                        // Resize handle (bottom-right corner)
                         Item {
-                            id: resizeHandle
+                            id: chartView
+                            anchors.left: parent.left
                             anchors.right: parent.right
+                            anchors.top: cardTitleBar.bottom
                             anchors.bottom: parent.bottom
-                            width: 16; height: 16
+                            anchors.margins: 8
+                            anchors.topMargin: 6
+                            visible: cardWidget.showChart
 
-                            Text {
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.rightMargin: 2
-                                anchors.bottomMargin: 0
-                                text: "⋱"
-                                font.pixelSize: 10
-                                color: root.subText
-                                opacity: resizeMA.containsMouse ? 0.8 : 0.3
+                            readonly property var points: cardWidget.historyData || []
+                            readonly property bool hasEnoughPoints: cardWidget.numericCard && points.length > 1
+                            readonly property real leftPad: 10
+                            readonly property real rightPad: 6
+                            readonly property real topPad: 8
+                            readonly property real bottomPad: 18
+                            readonly property real plotW: Math.max(1, width - leftPad - rightPad)
+                            readonly property real plotH: Math.max(1, height - topPad - bottomPad)
+                            readonly property real minX: hasEnoughPoints ? points[0].x : 0
+                            readonly property real maxX: hasEnoughPoints ? points[points.length - 1].x : 1
+                            readonly property real minY: {
+                                if (!hasEnoughPoints)
+                                    return 0
+                                var minValue = points[0].y
+                                for (var i = 1; i < points.length; ++i)
+                                    minValue = Math.min(minValue, points[i].y)
+                                return minValue
+                            }
+                            readonly property real maxY: {
+                                if (!hasEnoughPoints)
+                                    return 1
+                                var maxValue = points[0].y
+                                for (var i = 1; i < points.length; ++i)
+                                    maxValue = Math.max(maxValue, points[i].y)
+                                return maxValue
+                            }
+                            readonly property real xSpan: Math.max(1, maxX - minX)
+                            readonly property real ySpan: {
+                                var span = maxY - minY
+                                if (span < 0.000001)
+                                    span = Math.max(1, Math.abs(maxY) * 0.1)
+                                return span
                             }
 
-                            MouseArea {
-                                id: resizeMA
+                            function mapX(point) {
+                                return leftPad + ((point.x - minX) / xSpan) * plotW
+                            }
+
+                            function mapY(point) {
+                                return topPad + plotH - ((point.y - minY) / ySpan) * plotH
+                            }
+
+                            Rectangle {
                                 anchors.fill: parent
-                                anchors.margins: -4
-                                hoverEnabled: true
-                                cursorShape: Qt.SizeFDiagCursor
-                                property point pressPos
-                                property real pressW; property real pressH
-                                onPressed: function(mouse) {
-                                    root.raiseCard(cardWidget)
-                                    pressPos = mapToItem(cardScene, mouse.x, mouse.y)
-                                    pressW = cardWidget.width
-                                    pressH = cardWidget.height
+                                radius: root.cr - 2
+                                color: root.panelBg
+                                border.color: root.controlBorder
+                            }
+
+                            Canvas {
+                                id: chartCanvas
+                                anchors.fill: parent
+                                visible: chartView.hasEnoughPoints
+                                antialiasing: true
+
+                                Connections {
+                                    target: cardWidget
+                                    function onHistoryDataChanged() { chartCanvas.requestPaint() }
+                                    function onWidthChanged() { chartCanvas.requestPaint() }
+                                    function onHeightChanged() { chartCanvas.requestPaint() }
+                                    function onShowChartChanged() { chartCanvas.requestPaint() }
                                 }
-                                onPositionChanged: function(mouse) {
-                                    if (!pressed) return
-                                    var cur = mapToItem(cardScene, mouse.x, mouse.y)
-                                    cardWidget.width = Math.max(cardWidget.minW, pressW + cur.x - pressPos.x)
-                                    cardWidget.height = Math.max(cardWidget.minH, pressH + cur.y - pressPos.y)
+
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.clearRect(0, 0, width, height)
+
+                                    if (!chartView.hasEnoughPoints)
+                                        return
+
+                                    ctx.strokeStyle = root.controlBorder
+                                    ctx.lineWidth = 1
+                                    ctx.beginPath()
+                                    ctx.moveTo(chartView.leftPad, chartView.topPad)
+                                    ctx.lineTo(chartView.leftPad, chartView.topPad + chartView.plotH)
+                                    ctx.lineTo(chartView.leftPad + chartView.plotW, chartView.topPad + chartView.plotH)
+                                    ctx.stroke()
+
+                                    ctx.strokeStyle = cardWidget.cardColor
+                                    ctx.lineWidth = 2
+                                    ctx.beginPath()
+                                    for (var i = 0; i < chartView.points.length; ++i) {
+                                        var px = chartView.mapX(chartView.points[i])
+                                        var py = chartView.mapY(chartView.points[i])
+                                        if (i === 0)
+                                            ctx.moveTo(px, py)
+                                        else
+                                            ctx.lineTo(px, py)
+                                    }
+                                    ctx.stroke()
+
+                                    ctx.fillStyle = cardWidget.cardColor
+                                    for (var j = 0; j < chartView.points.length; ++j) {
+                                        var pointX = chartView.mapX(chartView.points[j])
+                                        var pointY = chartView.mapY(chartView.points[j])
+                                        ctx.beginPath()
+                                        ctx.arc(pointX, pointY, 2.5, 0, Math.PI * 2)
+                                        ctx.fill()
+                                    }
                                 }
-                                onReleased: {
-                                    root.setCardLayout(cardWidget.cardInfo.id, "w", cardWidget.width)
-                                    root.setCardLayout(cardWidget.cardInfo.id, "h", cardWidget.height)
+                            }
+
+                            Label {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.top: parent.top
+                                anchors.topMargin: 4
+                                visible: cardWidget.numericCard && chartView.points.length > 0
+                                text: "Max " + Number(chartView.maxY).toFixed(2)
+                                font.pixelSize: Math.max(8, 9 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+
+                            Label {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 2
+                                visible: cardWidget.numericCard && chartView.points.length > 0
+                                text: "Min " + Number(chartView.minY).toFixed(2)
+                                font.pixelSize: Math.max(8, 9 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+
+                            Label {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 10
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 2
+                                visible: chartView.hasEnoughPoints
+                                text: chartView.points.length + " pts"
+                                font.pixelSize: Math.max(8, 9 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+
+                            Label {
+                                anchors.centerIn: parent
+                                width: parent.width - 24
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                visible: !cardWidget.numericCard
+                                text: "Chart view is available for numeric cards only"
+                                font.pixelSize: Math.max(9, 10 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+
+                            Label {
+                                anchors.centerIn: parent
+                                width: parent.width - 24
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                visible: cardWidget.numericCard && !chartView.hasEnoughPoints
+                                text: "Waiting for more data points"
+                                font.pixelSize: Math.max(9, 10 * cardWidget.scaleFactor)
+                                color: root.subText
+                            }
+                        }
+
+                        // ── Edge & corner resize handles ──
+                        // Each handle stores the press origin and initial rect,
+                        // then adjusts x/y/width/height based on which edge is being dragged.
+                        Repeater {
+                            // 0=top, 1=bottom, 2=left, 3=right,
+                            // 4=topLeft, 5=topRight, 6=bottomLeft, 7=bottomRight
+                            model: 8
+                            Item {
+                                id: resizeEdge
+                                readonly property int edge: index
+                                readonly property bool isTop: edge === 0 || edge === 4 || edge === 5
+                                readonly property bool isBottom: edge === 1 || edge === 6 || edge === 7
+                                readonly property bool isLeft: edge === 2 || edge === 4 || edge === 6
+                                readonly property bool isRight: edge === 3 || edge === 5 || edge === 7
+                                readonly property bool isCorner: edge >= 4
+                                readonly property int grip: isCorner ? 8 : 5
+
+                                anchors.top: isTop ? parent.top : undefined
+                                anchors.bottom: isBottom ? parent.bottom : undefined
+                                anchors.left: isLeft ? parent.left : undefined
+                                anchors.right: isRight ? parent.right : undefined
+                                anchors.horizontalCenter: (edge === 0 || edge === 1) ? parent.horizontalCenter : undefined
+                                anchors.verticalCenter: (edge === 2 || edge === 3) ? parent.verticalCenter : undefined
+
+                                width: (isLeft || isRight) && !isCorner ? grip : isCorner ? grip * 2 : parent.width
+                                height: (isTop || isBottom) && !isCorner ? grip : isCorner ? grip * 2 : parent.height
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    anchors.margins: isCorner ? -2 : -1
+                                    hoverEnabled: true
+                                    cursorShape: {
+                                        if (edge === 0 || edge === 1) return Qt.SizeVerCursor
+                                        if (edge === 2 || edge === 3) return Qt.SizeHorCursor
+                                        if (edge === 4 || edge === 7) return Qt.SizeFDiagCursor
+                                        return Qt.SizeBDiagCursor
+                                    }
+                                    property point pressPos
+                                    property real pressX; property real pressY
+                                    property real pressW; property real pressH
+                                    onPressed: function(mouse) {
+                                        root.raiseCard(cardWidget)
+                                        pressPos = mapToItem(cardScene, mouse.x, mouse.y)
+                                        pressX = cardWidget.x; pressY = cardWidget.y
+                                        pressW = cardWidget.width; pressH = cardWidget.height
+                                    }
+                                    onPositionChanged: function(mouse) {
+                                        if (!pressed) return
+                                        var cur = mapToItem(cardScene, mouse.x, mouse.y)
+                                        var dx = cur.x - pressPos.x
+                                        var dy = cur.y - pressPos.y
+
+                                        if (resizeEdge.isRight) {
+                                            cardWidget.width = Math.max(cardWidget.minW, pressW + dx)
+                                        }
+                                        if (resizeEdge.isBottom) {
+                                            cardWidget.height = Math.max(cardWidget.minH, pressH + dy)
+                                        }
+                                        if (resizeEdge.isLeft) {
+                                            var newW = Math.max(cardWidget.minW, pressW - dx)
+                                            cardWidget.x = pressX + pressW - newW
+                                            cardWidget.width = newW
+                                        }
+                                        if (resizeEdge.isTop) {
+                                            var newH = Math.max(cardWidget.minH, pressH - dy)
+                                            cardWidget.y = pressY + pressH - newH
+                                            cardWidget.height = newH
+                                        }
+                                    }
+                                    onReleased: {
+                                        root.setCardLayout(cardWidget.cardInfo.id, "x", cardWidget.x)
+                                        root.setCardLayout(cardWidget.cardInfo.id, "y", cardWidget.y)
+                                        root.setCardLayout(cardWidget.cardInfo.id, "w", cardWidget.width)
+                                        root.setCardLayout(cardWidget.cardInfo.id, "h", cardWidget.height)
+                                    }
                                 }
                             }
                         }
@@ -1148,35 +1557,30 @@ Window {
                             color: root.logBg
                             border.color: root.controlBorder
 
-                            Flickable {
-                                id: logFlick
+                            ListView {
+                                id: logList
                                 anchors.fill: parent
                                 anchors.margins: 4
-                                contentWidth: width
-                                contentHeight: logArea.implicitHeight
                                 clip: true
-                                flickableDirection: Flickable.VerticalFlick
+                                model: logModel
+                                spacing: 2
                                 boundsBehavior: Flickable.StopAtBounds
+                                cacheBuffer: 0
+                                reuseItems: true
 
-                                TextArea {
-                                    id: logArea
-                                    width: logFlick.width
-                                    readOnly: true
+                                delegate: Text {
+                                    required property string richText
+                                    width: logList.width
+                                    text: richText
+                                    textFormat: Text.StyledText
+                                    wrapMode: Text.Wrap
                                     color: root.textColor
                                     font.family: uiSettings.logFontFamily
                                     font.pixelSize: uiSettings.logFontSize
-                                    text: root.richLogText
-                                    wrapMode: TextArea.Wrap
-                                    background: null
-                                    textFormat: TextEdit.RichText
+                                }
 
-                                    onTextChanged: {
-                                        if (autoScrollCheck.checked) {
-                                            Qt.callLater(function() {
-                                                logFlick.contentY = Math.max(0, logFlick.contentHeight - logFlick.height)
-                                            })
-                                        }
-                                    }
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: ScrollBar.AsNeeded
                                 }
                             }
                         }
@@ -1301,6 +1705,7 @@ Window {
             newCardColor.text = "#0e7a68"
             newCardTypeCombo.currentIndex = 0
             advancedMode = false
+            newCardNegative.checked = false
             boolTrueList = ["ON"]
             boolFalseList = ["OFF"]
             newCardName.forceActiveFocus()
@@ -1338,7 +1743,8 @@ Window {
                 var regex = escRe(prefix) + "(" + allKw.join("|") + ")" + escRe(suffix)
                 return regex + "; true=" + trueWords.join("|") + "; false=" + falseWords.join("|")
             } else {
-                return escRe(prefix) + "(\\d+\\.?\\d*)" + escRe(suffix)
+                var neg = newCardNegative.checked ? "-?" : ""
+                return escRe(prefix) + "(" + neg + "\\d+\\.?\\d*)" + escRe(suffix)
             }
         }
 
@@ -1459,6 +1865,12 @@ Window {
                             font.pixelSize: 10
                             color: root.subText
                             font.italic: true
+                        }
+
+                        LightCheckBox {
+                            id: newCardNegative
+                            visible: newCardTypeCombo.currentIndex === 0
+                            text: "支持负数"
                         }
 
                         // Boolean true/false keyword lists
@@ -1629,6 +2041,14 @@ Window {
                                 if (!color) color = "#0e7a68"
                                 CardBridge.addCard(newCardName.text, pattern,
                                                    cardType, newCardUnit.text, color)
+                                // Place new card at camera center
+                                var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
+                                var vw = cardArea.width || 400
+                                var vh = cardArea.height || 300
+                                var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
+                                var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
+                                root.setCardLayout(newId, "x", spawnX)
+                                root.setCardLayout(newId, "y", spawnY)
                                 addCardPopup.close()
                                 root.autoSaveCards()
                                 root.showToast("已创建卡片：" + newCardName.text)

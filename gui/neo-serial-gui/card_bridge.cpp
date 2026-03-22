@@ -1,23 +1,51 @@
 #include "card_bridge.h"
 
+#include <QDateTime>
+#include <QDebug>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QDir>
 #include <QJsonDocument>
-#include <QDateTime>
 #include <QMetaObject>
+
+namespace {
+
+qint64 toTimestampMs(const std::chrono::system_clock::time_point &timestamp) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               timestamp.time_since_epoch())
+        .count();
+}
+
+} // namespace
 
 // ---- Singleton -----------------------------------------------------------
 
+CardBridge *CardBridge::instance_ = nullptr;
+
 CardBridge *CardBridge::create(QQmlEngine *, QJSEngine *jsEngine) {
-    static CardBridge instance;
-    QJSEngine::setObjectOwnership(&instance, QJSEngine::CppOwnership);
-    return &instance;
+    if (!instance_)
+        instance_ = new CardBridge();
+    qDebug().noquote() << "[CardBridge] create singleton ptr=" << instance_;
+    QJSEngine::setObjectOwnership(instance_, QJSEngine::CppOwnership);
+    return instance_;
+}
+
+CardBridge &CardBridge::instance() {
+    if (!instance_)
+        instance_ = new CardBridge();
+    qDebug().noquote() << "[CardBridge] instance singleton ptr=" << instance_;
+    return *instance_;
 }
 
 CardBridge::CardBridge(QObject *parent)
     : QObject(parent)
 {
+    instance_ = this;
+    qDebug().noquote() << "[CardBridge] ctor ptr=" << this;
+    valueFlushTimer_.setSingleShot(true);
+    valueFlushTimer_.setInterval(kValueFlushIntervalMs);
+    connect(&valueFlushTimer_, &QTimer::timeout,
+            this, &CardBridge::flushPendingCardValueUpdates);
 }
 
 // ---- Properties ----------------------------------------------------------
@@ -53,25 +81,32 @@ QStringList CardBridge::presetNames() const {
 // }
 
 bool CardBridge::loadFromFile(const QString &path) {
+    qDebug().noquote() << "[CardBridge] loadFromFile path=" << path
+                       << "ptr=" << this;
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug().noquote() << "[CardBridge] loadFromFile open failed path=" << path;
         return false;
+    }
 
     QJsonParseError err;
     auto doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError)
+    if (err.error != QJsonParseError::NoError) {
+        qDebug().noquote() << "[CardBridge] loadFromFile parse failed error=" << err.errorString();
         return false;
+    }
 
     QJsonObject root = doc.object();
 
-    // current
     QJsonObject current = root.value("current").toObject();
     setCurrentName(current.value("name").toString());
     cardsFromJson(current.value("cards").toArray());
 
-    // presets
     presets_ = root.value("presets").toArray();
     emit presetsChanged();
+
+    qDebug().noquote() << "[CardBridge] loadFromFile success cardCount=" << cards_.size()
+                       << "ptr=" << this;
 
     return true;
 }
@@ -85,7 +120,6 @@ bool CardBridge::saveToFile(const QString &path) {
     root["current"] = current;
     root["presets"] = presets_;
 
-    // Ensure parent directory exists
     QFileInfo fi(path);
     QDir().mkpath(fi.absolutePath());
 
@@ -125,6 +159,7 @@ int CardBridge::addCard(const QString &name, const QString &pattern,
 void CardBridge::removeCard(int index) {
     if (index < 0 || index >= static_cast<int>(cards_.size()))
         return;
+    pendingValueUpdates_.remove(cards_[index].id);
     cards_.erase(cards_.begin() + index);
     emit cardsChanged();
 }
@@ -157,13 +192,13 @@ QVariantMap CardBridge::cardAt(int index) const {
     const auto &entry = cards_[index];
     const auto &cfg   = entry.card->config();
 
-    vm["id"]        = entry.id;
-    vm["name"]      = QString::fromStdString(cfg.name);
-    vm["pattern"]   = QString::fromStdString(cfg.pattern);
-    vm["type"]      = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
-    vm["unit"]      = QString::fromStdString(cfg.unit);
-    vm["color"]     = QString::fromStdString(cfg.color);
-    vm["enabled"]   = cfg.enabled;
+    vm["id"]         = entry.id;
+    vm["name"]       = QString::fromStdString(cfg.name);
+    vm["pattern"]    = QString::fromStdString(cfg.pattern);
+    vm["type"]       = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
+    vm["unit"]       = QString::fromStdString(cfg.unit);
+    vm["color"]      = QString::fromStdString(cfg.color);
+    vm["enabled"]    = cfg.enabled;
     vm["created_at"] = entry.createdAt;
     return vm;
 }
@@ -171,7 +206,6 @@ QVariantMap CardBridge::cardAt(int index) const {
 // ---- Presets -------------------------------------------------------------
 
 void CardBridge::savePreset(const QString &name) {
-    // Replace existing preset with the same name
     QJsonArray updated;
     for (const auto &p : presets_) {
         if (p.isObject() && p.toObject().value("name").toString() != name)
@@ -190,7 +224,8 @@ void CardBridge::savePreset(const QString &name) {
 
 void CardBridge::loadPreset(const QString &name) {
     for (const auto &p : presets_) {
-        if (!p.isObject()) continue;
+        if (!p.isObject())
+            continue;
         QJsonObject obj = p.toObject();
         if (obj.value("name").toString() == name) {
             setCurrentName(name);
@@ -213,9 +248,16 @@ void CardBridge::deletePreset(const QString &name) {
 // ---- Feed ----------------------------------------------------------------
 
 void CardBridge::feed(const QString &line) {
+    qDebug().noquote() << "[CardBridge] feed line=" << line
+                       << "cardCount=" << cards_.size();
     std::string str = line.toStdString();
-    for (auto &entry : cards_)
-        entry.card->feed(str);
+    for (auto &entry : cards_) {
+        const auto &cfg = entry.card->config();
+        const bool matched = entry.card->feed(str);
+        qDebug().noquote() << "[CardBridge] card id=" << entry.id
+                           << "name=" << QString::fromStdString(cfg.name)
+                           << "matched=" << matched;
+    }
 }
 
 // ---- Card values for QML -------------------------------------------------
@@ -232,12 +274,13 @@ QVariantMap CardBridge::cardValue(int index) const {
     auto v = entry.card->currentValue();
     const auto &cfg = entry.card->config();
 
-    vm["id"]      = static_cast<int>(v.id);
-    vm["numeric"] = v.numeric;
-    vm["boolean"] = v.boolean;
-    vm["matched"] = v.matched;
-    vm["raw"]     = QString::fromStdString(v.raw);
-    vm["type"]    = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
+    vm["id"]           = static_cast<int>(v.id);
+    vm["numeric"]      = v.numeric;
+    vm["boolean"]      = v.boolean;
+    vm["matched"]      = v.matched;
+    vm["raw"]          = QString::fromStdString(v.raw);
+    vm["timestamp_ms"] = toTimestampMs(v.timestamp);
+    vm["type"]         = (cfg.type == neo::CardType::Boolean) ? "boolean" : "numeric";
     return vm;
 }
 
@@ -252,11 +295,12 @@ QVariantList CardBridge::cardHistory(int index, int afterId, int limit) const {
 
     for (const auto &v : history) {
         QVariantMap vm;
-        vm["id"]      = static_cast<int>(v.id);
-        vm["numeric"] = v.numeric;
-        vm["boolean"] = v.boolean;
-        vm["matched"] = v.matched;
-        vm["raw"]     = QString::fromStdString(v.raw);
+        vm["id"]           = static_cast<int>(v.id);
+        vm["numeric"]      = v.numeric;
+        vm["boolean"]      = v.boolean;
+        vm["matched"]      = v.matched;
+        vm["raw"]          = QString::fromStdString(v.raw);
+        vm["timestamp_ms"] = toTimestampMs(v.timestamp);
         list.append(vm);
     }
     return list;
@@ -266,6 +310,7 @@ void CardBridge::clearCardHistory(int index) {
     if (index < 0 || index >= static_cast<int>(cards_.size()))
         return;
     cards_[index].card->clearHistory();
+    pendingValueUpdates_.remove(cards_[index].id);
 }
 
 // ---- Internal helpers ----------------------------------------------------
@@ -305,9 +350,11 @@ QJsonArray CardBridge::cardsToJson() const {
 
 void CardBridge::cardsFromJson(const QJsonArray &arr) {
     cards_.clear();
+    pendingValueUpdates_.clear();
 
     for (const auto &val : arr) {
-        if (!val.isObject()) continue;
+        if (!val.isObject())
+            continue;
         QJsonObject obj = val.toObject();
 
         CardEntry entry;
@@ -318,6 +365,7 @@ void CardBridge::cardsFromJson(const QJsonArray &arr) {
         wireCallback(entry);
         cards_.push_back(std::move(entry));
     }
+    qDebug().noquote() << "[CardBridge] cards loaded count=" << cards_.size();
     emit cardsChanged();
 }
 
@@ -325,22 +373,50 @@ void CardBridge::wireCallback(CardEntry &entry) {
     int cardId = entry.id;
     entry.card->onValueChanged([this, cardId](const neo::CardValue &v) {
         QVariantMap vm;
-        vm["id"]      = static_cast<int>(v.id);
-        vm["numeric"] = v.numeric;
-        vm["boolean"] = v.boolean;
-        vm["matched"] = v.matched;
-        vm["raw"]     = QString::fromStdString(v.raw);
-        // 使用 QueuedConnection 确保信号在 GUI 线程的事件循环中处理，
-        // 避免在 feed() 遍历过程中 QML 侧修改卡片列表
+        vm["id"]           = static_cast<int>(v.id);
+        vm["numeric"]      = v.numeric;
+        vm["boolean"]      = v.boolean;
+        vm["matched"]      = v.matched;
+        vm["raw"]          = QString::fromStdString(v.raw);
+        vm["timestamp_ms"] = toTimestampMs(v.timestamp);
         QMetaObject::invokeMethod(this, [this, cardId, vm]() {
-            emit cardValueUpdated(cardId, vm);
+            qDebug().noquote() << "[CardBridge] queue update cardId=" << cardId
+                               << "valueId=" << vm.value("id").toInt()
+                               << "raw=" << vm.value("raw").toString()
+                               << "matched=" << vm.value("matched").toBool();
+            queueCardValueUpdate(cardId, vm);
         }, Qt::QueuedConnection);
     });
+}
+
+void CardBridge::queueCardValueUpdate(int cardId, QVariantMap value) {
+    pendingValueUpdates_.insert(cardId, value);
+    qDebug().noquote() << "[CardBridge] pending update cardId=" << cardId
+                       << "pendingCount=" << pendingValueUpdates_.size();
+    if (!valueFlushTimer_.isActive())
+        valueFlushTimer_.start();
+}
+
+void CardBridge::flushPendingCardValueUpdates() {
+    if (pendingValueUpdates_.isEmpty())
+        return;
+
+    const auto updates = pendingValueUpdates_;
+    pendingValueUpdates_.clear();
+
+    for (auto it = updates.cbegin(); it != updates.cend(); ++it) {
+        qDebug().noquote() << "[CardBridge] emit cardValueUpdated cardId="
+                           << it.key()
+                           << "valueId=" << it.value().value("id").toInt()
+                           << "raw=" << it.value().value("raw").toString();
+        emit cardValueUpdated(it.key(), it.value());
+    }
 }
 
 int CardBridge::nextCardId() const {
     int maxId = 0;
     for (const auto &e : cards_)
-        if (e.id > maxId) maxId = e.id;
+        if (e.id > maxId)
+            maxId = e.id;
     return maxId + 1;
 }

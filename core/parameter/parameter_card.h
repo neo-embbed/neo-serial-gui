@@ -83,7 +83,7 @@ public:
     // Callback – fires on every new matched value
     void onValueChanged(CardValueCallback cb);
 
-    static constexpr std::size_t kMaxHistory = 5000;
+    static constexpr std::size_t kMaxHistory = 500;
 
 private:
     void compilePattern();

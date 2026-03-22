@@ -1,10 +1,13 @@
 #include "session_bridge.h"
+#include "card_bridge.h"
 
+#include <QDebug>
 #include <QMetaObject>
+#include <QVariantMap>
 
 SessionBridge *SessionBridge::create(QQmlEngine *qmlEngine, QJSEngine *) {
     static SessionBridge instance;
-    instance.pollTimer_.start();  // ensure timer is running
+    instance.pollTimer_.start();
     QJSEngine::setObjectOwnership(&instance, QJSEngine::CppOwnership);
     return &instance;
 }
@@ -21,21 +24,11 @@ static QString directionToString(neo::Direction dir) {
 SessionBridge::SessionBridge(QObject *parent)
     : QObject(parent)
 {
-    // Transport回调在I/O线程上触发，通过queued信号转发到GUI线程
     session_.onStateChanged([this](neo::TransportState, const std::string &) {
         QMetaObject::invokeMethod(this, &SessionBridge::statusChanged,
-                                Qt::QueuedConnection);
+                                  Qt::QueuedConnection);
     });
 
-    session_.onMessage([this](const neo::Message &msg) {
-        QString dir = directionToString(msg.direction);
-        QString content = QString::fromStdString(msg.content);
-        QMetaObject::invokeMethod(this, [this, dir, content]() {
-            emit messageReceived(dir, content);
-        }, Qt::QueuedConnection);
-    });
-
-    // 定时轮询消息历史，更新日志文本
     pollTimer_.setInterval(50);
     connect(&pollTimer_, &QTimer::timeout, this, &SessionBridge::pollMessages);
     pollTimer_.start();
@@ -87,12 +80,10 @@ void SessionBridge::disconnectPort() {
 }
 
 bool SessionBridge::send(const QString &data) {
-    bool ok = session_.send(data.toStdString());
-    return ok;
+    return session_.send(data.toStdString());
 }
 
 bool SessionBridge::sendHex(const QString &hexStr) {
-    // 解析hex字符串，如 "48 65 6C 6C 6F"
     QString cleaned = hexStr.simplified().remove(' ');
     if (cleaned.size() % 2 != 0)
         return false;
@@ -102,7 +93,8 @@ bool SessionBridge::sendHex(const QString &hexStr) {
     for (int i = 0; i < cleaned.size(); i += 2) {
         bool ok;
         uint8_t byte = cleaned.mid(i, 2).toUInt(&ok, 16);
-        if (!ok) return false;
+        if (!ok)
+            return false;
         bytes.push_back(byte);
     }
     return session_.send(bytes.data(), bytes.size());
@@ -112,7 +104,10 @@ void SessionBridge::clearLog() {
     session_.clearMessages();
     lastMsgId_ = 0;
     log_.clear();
+    logLineCount_ = 0;
     emit logChanged();
+    emit logCleared();
+    emit logRebuilt();
 }
 
 void SessionBridge::pollMessages() {
@@ -120,13 +115,56 @@ void SessionBridge::pollMessages() {
     if (msgs.empty())
         return;
 
+    QVariantList batch;
+    batch.reserve(static_cast<qsizetype>(msgs.size()));
+
     for (const auto &m : msgs) {
         QString prefix = directionToString(m.direction);
         QString content = QString::fromStdString(m.content);
         QString line = QStringLiteral("[%1] %2\n").arg(prefix, content);
+
+        if (m.direction == neo::Direction::Rx) {
+            qDebug().noquote() << "[SessionBridge] RX message id=" << m.id
+                               << "content=" << content;
+            CardBridge::instance().feed(content);
+        }
+
         log_.append(line);
+        ++logLineCount_;
         lastMsgId_ = m.id;
-        emit messageReceived(prefix, content);
+
+        QVariantMap item;
+        item.insert(QStringLiteral("line"), line);
+        batch.append(item);
+
     }
+
     emit logChanged();
+    emit messagesReceived(batch);
+    if (trimLogIfNeeded())
+        emit logRebuilt();
+}
+
+bool SessionBridge::trimLogIfNeeded() {
+    if (logLineCount_ <= kMaxLogLines)
+        return false;
+
+    qsizetype linesToTrim = logLineCount_ - kMaxLogLines;
+    qsizetype cutPos = 0;
+    while (linesToTrim > 0) {
+        cutPos = log_.indexOf('\n', cutPos);
+        if (cutPos < 0) {
+            log_.clear();
+            logLineCount_ = 0;
+            return true;
+        }
+        ++cutPos;
+        --linesToTrim;
+    }
+
+    if (cutPos > 0)
+        log_ = log_.mid(cutPos);   // mid() allocates a fresh buffer; remove() keeps the old one
+    logLineCount_ = kMaxLogLines;
+    emit logChanged();
+    return true;
 }
