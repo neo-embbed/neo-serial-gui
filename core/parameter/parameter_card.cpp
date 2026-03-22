@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 #include <sstream>
 
 namespace neo {
@@ -148,7 +147,6 @@ bool ParameterCard::feedBoolean(const std::string& line) {
 // ---- History storage (mirrors Session::appendMessage pattern) ------------
 
 void ParameterCard::appendValue(CardValue val) {
-    const auto nextId = next_id_;
     {
         std::lock_guard<std::mutex> lk(data_mutex_);
         val.id     = next_id_++;
@@ -159,13 +157,6 @@ void ParameterCard::appendValue(CardValue val) {
         while (history_.size() > kMaxHistory)
             history_.pop_front();
     }
-
-    std::cout << "[ParameterCard] appendValue id=" << nextId
-              << " raw=" << val.raw
-              << " matched=" << val.matched
-              << " numeric=" << val.numeric
-              << " boolean=" << val.boolean
-              << std::endl;
 
     CardValueCallback cb;
     {
