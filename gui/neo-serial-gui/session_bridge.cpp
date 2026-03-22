@@ -123,11 +123,8 @@ void SessionBridge::pollMessages() {
         QString content = QString::fromStdString(m.content);
         QString line = QStringLiteral("[%1] %2\n").arg(prefix, content);
 
-        if (m.direction == neo::Direction::Rx) {
-            qDebug().noquote() << "[SessionBridge] RX message id=" << m.id
-                               << "content=" << content;
+        if (m.direction == neo::Direction::Rx)
             CardBridge::instance().feed(content);
-        }
 
         log_.append(line);
         ++logLineCount_;

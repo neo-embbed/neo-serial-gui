@@ -106,10 +106,14 @@ Window {
         id: cardLayoutSettings
         category: "cardLayout"
         property string layoutJson: "{}"
+        property bool gridSnapEnabled: false
     }
 
     property var cardLayoutMap: ({})
     property int cardZCounter: 1000
+    property bool gridSnapEnabled: cardLayoutSettings.gridSnapEnabled
+    readonly property real cardGridSize: 20
+    readonly property color cardGridColor: Qt.rgba(panelBorder.r, panelBorder.g, panelBorder.b, 0.55)
 
     function loadCardLayout() {
         try { cardLayoutMap = JSON.parse(cardLayoutSettings.layoutJson) }
@@ -141,6 +145,18 @@ Window {
         var key = "c" + cardId + "_" + prop
         cardLayoutMap[key] = val
         saveCardLayout()
+    }
+
+    function snapToGrid(value) {
+        if (!gridSnapEnabled)
+            return value
+        return Math.round(value / cardGridSize) * cardGridSize
+    }
+
+    function snapSizeToGrid(value, minValue) {
+        if (!gridSnapEnabled)
+            return Math.max(minValue, value)
+        return Math.max(minValue, Math.round(value / cardGridSize) * cardGridSize)
     }
 
     function raiseCard(cardItem) {
@@ -732,6 +748,53 @@ Window {
                 readonly property real minCameraScale: 0.25
                 readonly property real maxCameraScale: 3.0
 
+                Canvas {
+                    id: cardGridCanvas
+                    anchors.fill: parent
+                    z: 0
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+
+                        var spacing = root.cardGridSize * cardArea.cameraScale
+                        while (spacing < 12)
+                            spacing *= 2
+
+                        if (spacing <= 0)
+                            return
+
+                        var startX = cardArea.cameraX % spacing
+                        if (startX < 0)
+                            startX += spacing
+                        var startY = cardArea.cameraY % spacing
+                        if (startY < 0)
+                            startY += spacing
+
+                        ctx.strokeStyle = root.cardGridColor
+                        ctx.lineWidth = 1
+
+                        for (var x = startX; x < width; x += spacing) {
+                            ctx.beginPath()
+                            ctx.moveTo(Math.round(x) + 0.5, 0)
+                            ctx.lineTo(Math.round(x) + 0.5, height)
+                            ctx.stroke()
+                        }
+
+                        for (var y = startY; y < height; y += spacing) {
+                            ctx.beginPath()
+                            ctx.moveTo(0, Math.round(y) + 0.5)
+                            ctx.lineTo(width, Math.round(y) + 0.5)
+                            ctx.stroke()
+                        }
+                    }
+                }
+
+                onCameraScaleChanged: cardGridCanvas.requestPaint()
+                onCameraXChanged: cardGridCanvas.requestPaint()
+                onCameraYChanged: cardGridCanvas.requestPaint()
+                onWidthChanged: cardGridCanvas.requestPaint()
+                onHeightChanged: cardGridCanvas.requestPaint()
+
                 Label {
                     visible: CardBridge.cardCount === 0
                     anchors.centerIn: parent
@@ -742,6 +805,7 @@ Window {
                 Item {
                     id: cardViewport
                     anchors.fill: parent
+                    z: 1
 
                     // Wheel zoom (overall view)
                     WheelHandler {
@@ -873,6 +937,39 @@ Window {
                     }
                 }
 
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: 10
+                    radius: root.cr
+                    color: root.controlBg
+                    border.color: gridSnapButton.containsMouse || root.gridSnapEnabled
+                                  ? root.primary : root.controlBorder
+                    z: 10001
+                    implicitWidth: gridSnapLabel.implicitWidth + 18
+                    implicitHeight: 28
+
+                    Label {
+                        id: gridSnapLabel
+                        anchors.centerIn: parent
+                        text: root.gridSnapEnabled ? "网格吸附开启" : "网格吸附关闭"
+                        font.pixelSize: 10
+                        color: root.gridSnapEnabled ? root.primary : root.subText
+                    }
+
+                    MouseArea {
+                        id: gridSnapButton
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            root.gridSnapEnabled = !root.gridSnapEnabled
+                            cardLayoutSettings.gridSnapEnabled = root.gridSnapEnabled
+                            root.showToast(root.gridSnapEnabled ? "已开启网格吸附" : "已关闭网格吸附")
+                        }
+                    }
+                }
+
                 Item {
                     id: cardScene
                     property var wnd: root
@@ -962,30 +1059,29 @@ Window {
                         }
 
                         Component.onCompleted: {
-                            console.log("[CardWidget] completed cardIndex=", cardIndex,
-                                        "cardId=", cardInfo.id,
-                                        "name=", cardInfo.name,
-                                        "qmlCardCount=", CardBridge.cardCount)
                             cardVal = CardBridge.cardValue(cardIndex) || {}
-                            reloadHistory()
+                            if (showChart)
+                                reloadHistory()
                             if (zOrder === 0)
                                 cardWidget.root.raiseCard(cardWidget)
                         }
 
                         onCardIndexChanged: reloadHistory()
                         onNumericCardChanged: reloadHistory()
+                        onShowChartChanged: {
+                            if (showChart)
+                                reloadHistory()
+                            else
+                                historyData = []
+                        }
 
                         Connections {
                             target: CardBridge
                             function onCardValueUpdated(cardId, value) {
-                                console.log("[CardWidget] onCardValueUpdated cardId=", cardId,
-                                            "delegateCardId=", cardWidget.cardInfo.id,
-                                            "valueId=", value && value.id,
-                                            "raw=", value && value.raw)
                                 if (cardId === cardWidget.cardInfo.id) {
                                     cardWidget.cardVal = value
-                                    cardWidget.appendHistoryPoint(value)
-                                    console.log("[CardWidget] cardVal updated cardId=", cardId)
+                                    if (cardWidget.showChart)
+                                        cardWidget.appendHistoryPoint(value)
                                 }
                             }
                         }
@@ -1021,7 +1117,7 @@ Window {
                                 anchors.rightMargin: 6
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "×"
-                                font.pixelSize: 13
+                                font.pixelSize: Math.max(13, 13 * cardWidget.scaleFactor)
                                 color: root.subText
                                 opacity: deleteMA.containsMouse ? 1.0 : 0.3
 
@@ -1045,7 +1141,7 @@ Window {
                                 anchors.right: deleteText.left
                                 anchors.rightMargin: 4
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(48, cardWidget.width * 0.25)
+                                width: Math.max(48, cardWidget.width * 0.25)
                                 height: Math.max(18, 18 * cardWidget.scaleFactor)
                                 radius: height / 2
                                 color: modeMA.pressed ? root.buttonPress
@@ -1100,10 +1196,12 @@ Window {
                                     var cur = mapToItem(cardScene, mouse.x, mouse.y)
                                     var nx = pressItemPos.x + cur.x - pressPos.x
                                     var ny = pressItemPos.y + cur.y - pressPos.y
-                                    cardWidget.x = nx
-                                    cardWidget.y = ny
+                                    cardWidget.x = root.snapToGrid(nx)
+                                    cardWidget.y = root.snapToGrid(ny)
                                 }
                                 onReleased: {
+                                    cardWidget.x = root.snapToGrid(cardWidget.x)
+                                    cardWidget.y = root.snapToGrid(cardWidget.y)
                                     cardWidget.root.setCardLayout(cardWidget.cardInfo.id, "x", cardWidget.x)
                                     cardWidget.root.setCardLayout(cardWidget.cardInfo.id, "y", cardWidget.y)
                                 }
@@ -1135,7 +1233,7 @@ Window {
                                     var num = Number(v.numeric)
                                     return isNaN(num) ? v.raw || "--" : num.toFixed(2)
                                 }
-                                font.pixelSize: Math.max(16, Math.min(48, 24 * cardWidget.scaleFactor))
+                                font.pixelSize: Math.max(16, 24 * cardWidget.scaleFactor)
                                 font.bold: true
                                 color: cardWidget.cardColor
                                 elide: Text.ElideRight
@@ -1176,12 +1274,20 @@ Window {
 
                             readonly property var points: cardWidget.historyData || []
                             readonly property bool hasEnoughPoints: cardWidget.numericCard && points.length > 1
+                            readonly property real maxRenderWidth: 160
+                            readonly property real maxRenderHeight: 90
+                            readonly property real renderWidth: Math.max(1, Math.min(width, maxRenderWidth))
+                            readonly property real renderHeight: Math.max(1, Math.min(height, maxRenderHeight))
+                            readonly property real renderScale: Math.max(
+                                                                   1,
+                                                                   Math.min(width / renderWidth,
+                                                                            height / renderHeight))
                             readonly property real leftPad: 10
                             readonly property real rightPad: 6
                             readonly property real topPad: 8
                             readonly property real bottomPad: 18
-                            readonly property real plotW: Math.max(1, width - leftPad - rightPad)
-                            readonly property real plotH: Math.max(1, height - topPad - bottomPad)
+                            readonly property real plotW: Math.max(1, renderWidth - leftPad - rightPad)
+                            readonly property real plotH: Math.max(1, renderHeight - topPad - bottomPad)
                             readonly property real minX: hasEnoughPoints ? points[0].x : 0
                             readonly property real maxX: hasEnoughPoints ? points[points.length - 1].x : 1
                             readonly property real minY: {
@@ -1223,55 +1329,63 @@ Window {
                                 border.color: root.controlBorder
                             }
 
-                            Canvas {
-                                id: chartCanvas
-                                anchors.fill: parent
+                            Item {
+                                anchors.centerIn: parent
+                                width: chartView.renderWidth
+                                height: chartView.renderHeight
                                 visible: chartView.hasEnoughPoints
-                                antialiasing: true
+                                scale: chartView.renderScale
 
-                                Connections {
-                                    target: cardWidget
-                                    function onHistoryDataChanged() { chartCanvas.requestPaint() }
-                                    function onWidthChanged() { chartCanvas.requestPaint() }
-                                    function onHeightChanged() { chartCanvas.requestPaint() }
-                                    function onShowChartChanged() { chartCanvas.requestPaint() }
-                                }
+                                Canvas {
+                                    id: chartCanvas
+                                    anchors.fill: parent
+                                    antialiasing: true
+                                    canvasSize: Qt.size(chartView.renderWidth, chartView.renderHeight)
 
-                                onPaint: {
-                                    var ctx = getContext("2d")
-                                    ctx.clearRect(0, 0, width, height)
-
-                                    if (!chartView.hasEnoughPoints)
-                                        return
-
-                                    ctx.strokeStyle = root.controlBorder
-                                    ctx.lineWidth = 1
-                                    ctx.beginPath()
-                                    ctx.moveTo(chartView.leftPad, chartView.topPad)
-                                    ctx.lineTo(chartView.leftPad, chartView.topPad + chartView.plotH)
-                                    ctx.lineTo(chartView.leftPad + chartView.plotW, chartView.topPad + chartView.plotH)
-                                    ctx.stroke()
-
-                                    ctx.strokeStyle = cardWidget.cardColor
-                                    ctx.lineWidth = 2
-                                    ctx.beginPath()
-                                    for (var i = 0; i < chartView.points.length; ++i) {
-                                        var px = chartView.mapX(chartView.points[i])
-                                        var py = chartView.mapY(chartView.points[i])
-                                        if (i === 0)
-                                            ctx.moveTo(px, py)
-                                        else
-                                            ctx.lineTo(px, py)
+                                    Connections {
+                                        target: cardWidget
+                                        function onHistoryDataChanged() { chartCanvas.requestPaint() }
+                                        function onWidthChanged() { chartCanvas.requestPaint() }
+                                        function onHeightChanged() { chartCanvas.requestPaint() }
+                                        function onShowChartChanged() { chartCanvas.requestPaint() }
                                     }
-                                    ctx.stroke()
 
-                                    ctx.fillStyle = cardWidget.cardColor
-                                    for (var j = 0; j < chartView.points.length; ++j) {
-                                        var pointX = chartView.mapX(chartView.points[j])
-                                        var pointY = chartView.mapY(chartView.points[j])
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        ctx.clearRect(0, 0, chartView.renderWidth, chartView.renderHeight)
+
+                                        if (!chartView.hasEnoughPoints)
+                                            return
+
+                                        ctx.strokeStyle = root.controlBorder
+                                        ctx.lineWidth = 1
                                         ctx.beginPath()
-                                        ctx.arc(pointX, pointY, 2.5, 0, Math.PI * 2)
-                                        ctx.fill()
+                                        ctx.moveTo(chartView.leftPad, chartView.topPad)
+                                        ctx.lineTo(chartView.leftPad, chartView.topPad + chartView.plotH)
+                                        ctx.lineTo(chartView.leftPad + chartView.plotW, chartView.topPad + chartView.plotH)
+                                        ctx.stroke()
+
+                                        ctx.strokeStyle = cardWidget.cardColor
+                                        ctx.lineWidth = 2
+                                        ctx.beginPath()
+                                        for (var i = 0; i < chartView.points.length; ++i) {
+                                            var px = chartView.mapX(chartView.points[i])
+                                            var py = chartView.mapY(chartView.points[i])
+                                            if (i === 0)
+                                                ctx.moveTo(px, py)
+                                            else
+                                                ctx.lineTo(px, py)
+                                        }
+                                        ctx.stroke()
+
+                                        ctx.fillStyle = cardWidget.cardColor
+                                        for (var j = 0; j < chartView.points.length; ++j) {
+                                            var pointX = chartView.mapX(chartView.points[j])
+                                            var pointY = chartView.mapY(chartView.points[j])
+                                            ctx.beginPath()
+                                            ctx.arc(pointX, pointY, 2.5, 0, Math.PI * 2)
+                                            ctx.fill()
+                                        }
                                     }
                                 }
                             }
@@ -1385,23 +1499,31 @@ Window {
                                         var dy = cur.y - pressPos.y
 
                                         if (resizeEdge.isRight) {
-                                            cardWidget.width = Math.max(cardWidget.minW, pressW + dx)
+                                            cardWidget.width = root.snapSizeToGrid(pressW + dx, cardWidget.minW)
                                         }
                                         if (resizeEdge.isBottom) {
-                                            cardWidget.height = Math.max(cardWidget.minH, pressH + dy)
+                                            cardWidget.height = root.snapSizeToGrid(pressH + dy, cardWidget.minH)
                                         }
                                         if (resizeEdge.isLeft) {
-                                            var newW = Math.max(cardWidget.minW, pressW - dx)
-                                            cardWidget.x = pressX + pressW - newW
+                                            var rightEdge = pressX + pressW
+                                            var newW = root.snapSizeToGrid(pressW - dx, cardWidget.minW)
+                                            cardWidget.x = root.snapToGrid(rightEdge - newW)
+                                            newW = Math.max(cardWidget.minW, rightEdge - cardWidget.x)
                                             cardWidget.width = newW
                                         }
                                         if (resizeEdge.isTop) {
-                                            var newH = Math.max(cardWidget.minH, pressH - dy)
-                                            cardWidget.y = pressY + pressH - newH
+                                            var bottomEdge = pressY + pressH
+                                            var newH = root.snapSizeToGrid(pressH - dy, cardWidget.minH)
+                                            cardWidget.y = root.snapToGrid(bottomEdge - newH)
+                                            newH = Math.max(cardWidget.minH, bottomEdge - cardWidget.y)
                                             cardWidget.height = newH
                                         }
                                     }
                                     onReleased: {
+                                        cardWidget.x = root.snapToGrid(cardWidget.x)
+                                        cardWidget.y = root.snapToGrid(cardWidget.y)
+                                        cardWidget.width = root.snapSizeToGrid(cardWidget.width, cardWidget.minW)
+                                        cardWidget.height = root.snapSizeToGrid(cardWidget.height, cardWidget.minH)
                                         root.setCardLayout(cardWidget.cardInfo.id, "x", cardWidget.x)
                                         root.setCardLayout(cardWidget.cardInfo.id, "y", cardWidget.y)
                                         root.setCardLayout(cardWidget.cardInfo.id, "w", cardWidget.width)
@@ -2047,6 +2169,8 @@ Window {
                                 var vh = cardArea.height || 300
                                 var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
                                 var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
+                                spawnX = root.snapToGrid(spawnX)
+                                spawnY = root.snapToGrid(spawnY)
                                 root.setCardLayout(newId, "x", spawnX)
                                 root.setCardLayout(newId, "y", spawnY)
                                 addCardPopup.close()
