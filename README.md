@@ -59,37 +59,7 @@
 
 ### 构建
 
-推荐直接在项目入口目录 `gui/neo-serial-gui` 使用 `CMakePresets.json`：
-
-```powershell
-cd gui/neo-serial-gui
-cmake --preset qt6-mingw-debug
-cmake --build --preset build-debug
-```
-
-如果你的 Qt 安装路径和当前机器不一致，可先修改 [gui/neo-serial-gui/CMakePresets.json](gui/neo-serial-gui/CMakePresets.json)：
-
-```json
-"CMAKE_PREFIX_PATH": "C:/Qt/6.9.0/mingw_64"
-```
-
-若你想手动执行等价命令，对应的是：
-
-```powershell
-cmake -S gui/neo-serial-gui -B out/build/qt6-mingw-debug -G Ninja `
-  -DCMAKE_BUILD_TYPE=Debug `
-  -DCMAKE_PREFIX_PATH=C:/Qt/6.9.0/mingw_64 `
-  -DCMAKE_MAKE_PROGRAM=C:/Qt/Tools/Ninja/ninja.exe `
-  -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
-  -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
-cmake --build out/build/qt6-mingw-debug
-```
-
-### 运行
-
-```bash
-./build/neo-serial-gui
-```
+UNDER CONSTRUCTION...
 
 启动后：
 1. 选择串口和波特率，点击 **连接**
@@ -159,9 +129,35 @@ neo-serial-gui/
 
 | 文档 | 说明 |
 |------|------|
-| [监测卡片使用指南](docs/user/monitor-card-guide.md) | 创建、操作卡片的完整教程 |
+| [监测卡片使用指南](README_CARD.md) | 创建、操作卡片的完整教程 |
 ---
 
 ## License
 
 [MIT](LICENSE) &copy; Neo Embedded
+
+---
+
+## Card Area Updates
+
+- The card canvas now shows a grid background.
+- A `Grid Snap` toggle is available in the upper-left corner of the card area.
+- When `Grid Snap` is enabled, moving cards, resizing cards, and newly created card positions snap to the grid.
+- Double-click a card title to rename it quickly in place.
+- Double-click a card body area, excluding buttons, to open the card editor with the current configuration prefilled.
+- The card editor reuses the same form as card creation, and switches between create/edit modes automatically.
+- Chart cards now use capped internal render resolution, so enlarging a card scales the display without increasing render cost proportionally.
+
+## Card Editing Shortcuts
+
+- `Double-click title`: quick rename current card.
+- `Double-click card body`: open `Edit Monitor Card`.
+- `Enter`: confirm inline rename.
+- `Esc`: cancel inline rename.
+
+## Build Note
+
+- Preset-based build remains unchanged:
+- `cd gui/neo-serial-gui`
+- `cmake --preset qt6-mingw-debug`
+- `cmake --build --preset build-debug`
