@@ -6,3 +6,4 @@ docs/user/*
 todo.txt
 gui/neo-serial-gui/build/*
 build
+build-codex
