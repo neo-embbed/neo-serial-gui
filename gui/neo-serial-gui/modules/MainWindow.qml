@@ -159,6 +159,12 @@ Window {
         return Math.max(minValue, Math.round(value / cardGridSize) * cardGridSize)
     }
 
+    function openCardEditor(cardIndex) {
+        if (cardIndex < 0 || cardIndex >= CardBridge.cardCount)
+            return
+        addCardPopup.openForEdit(cardIndex)
+    }
+
     function raiseCard(cardItem) {
         if (!cardItem || !cardItem.cardInfo || cardItem.cardInfo.id === undefined)
             return
@@ -999,6 +1005,7 @@ Window {
                          property var historyData: []
                          property bool showChart: false
                          property string cardColor: cardInfo.color || root.primary
+                         property bool renamingTitle: false
                         property int zOrder: root.getCardLayout(cardInfo.id, "z", 0)
 
                         readonly property real minW: 140
@@ -1165,6 +1172,7 @@ Window {
                             }
 
                             Label {
+                                visible: !cardWidget.renamingTitle
                                 anchors.left: parent.left
                                 anchors.leftMargin: 8
                                 anchors.right: modeButton.left
@@ -1175,6 +1183,46 @@ Window {
                                 font.bold: true
                                 color: cardWidget.cardColor
                                 elide: Text.ElideRight
+                            }
+
+                            LightTextField {
+                                id: renameField
+                                visible: cardWidget.renamingTitle
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                anchors.right: modeButton.left
+                                anchors.rightMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: cardWidget.cardInfo.name || ""
+                                selectByMouse: true
+
+                                function commitRename() {
+                                    var trimmed = text.trim()
+                                    if (trimmed.length > 0 && trimmed !== (cardWidget.cardInfo.name || "")) {
+                                        CardBridge.updateCard(cardWidget.cardIndex, { "name": trimmed })
+                                        cardWidget.cardInfo = CardBridge.cardAt(cardWidget.cardIndex)
+                                        cardWidget.root.autoSaveCards()
+                                    }
+                                    cardWidget.renamingTitle = false
+                                }
+
+                                onVisibleChanged: {
+                                    if (visible) {
+                                        text = cardWidget.cardInfo.name || ""
+                                        forceActiveFocus()
+                                        selectAll()
+                                    }
+                                }
+
+                                Keys.onReturnPressed: commitRename()
+                                Keys.onEnterPressed: commitRename()
+                                Keys.onEscapePressed: {
+                                    cardWidget.renamingTitle = false
+                                }
+                                onActiveFocusChanged: {
+                                    if (!activeFocus && visible)
+                                        commitRename()
+                                }
                             }
 
                             MouseArea {
@@ -1190,6 +1238,9 @@ Window {
                                     cardWidget.root.raiseCard(cardWidget)
                                     pressPos = mapToItem(cardScene, mouse.x, mouse.y)
                                     pressItemPos = Qt.point(cardWidget.x, cardWidget.y)
+                                }
+                                onDoubleClicked: {
+                                    cardWidget.renamingTitle = true
                                 }
                                 onPositionChanged: function(mouse) {
                                     if (!pressed) return
@@ -1218,6 +1269,16 @@ Window {
                             anchors.topMargin: 4
                             spacing: 2
                             visible: !cardWidget.showChart
+
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                propagateComposedEvents: true
+                                onDoubleClicked: {
+                                    mouse.accepted = true
+                                    cardWidget.root.openCardEditor(cardWidget.cardIndex)
+                                }
+                            }
 
                             Item { Layout.fillHeight: true; width: 1; height: 1 }
 
@@ -1271,6 +1332,16 @@ Window {
                             anchors.margins: 8
                             anchors.topMargin: 6
                             visible: cardWidget.showChart
+
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                propagateComposedEvents: true
+                                onDoubleClicked: {
+                                    mouse.accepted = true
+                                    cardWidget.root.openCardEditor(cardWidget.cardIndex)
+                                }
+                            }
 
                             readonly property var points: cardWidget.historyData || []
                             readonly property bool hasEnoughPoints: cardWidget.numericCard && points.length > 1
@@ -1562,7 +1633,7 @@ Window {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: addCardPopup.open()
+                        onClicked: addCardPopup.openForCreate()
                     }
                 }
             }
@@ -1811,6 +1882,8 @@ Window {
         property bool advancedMode: false
         property var boolTrueList: []
         property var boolFalseList: []
+        property bool editMode: false
+        property int editingCardIndex: -1
 
         background: Rectangle {
             radius: root.cr
@@ -1818,7 +1891,7 @@ Window {
             border.color: root.panelBorder
         }
 
-        onOpened: {
+        function resetForm() {
             newCardName.text = ""
             newCardPattern.text = ""
             newCardPrefix.text = ""
@@ -1827,9 +1900,129 @@ Window {
             newCardColor.text = "#0e7a68"
             newCardTypeCombo.currentIndex = 0
             advancedMode = false
+            newCardTypeAdvNumeric.checked = true
+            newCardTypeAdvBool.checked = false
             newCardNegative.checked = false
             boolTrueList = ["ON"]
             boolFalseList = ["OFF"]
+        }
+
+        function splitPatternParts(pattern) {
+            var openIndex = -1
+            var closeIndex = -1
+            var escaped = false
+            var depth = 0
+            for (var i = 0; i < pattern.length; ++i) {
+                var ch = pattern.charAt(i)
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (ch === "\\") {
+                    escaped = true
+                    continue
+                }
+                if (ch === "(") {
+                    if (depth === 0)
+                        openIndex = i
+                    depth += 1
+                } else if (ch === ")" && depth > 0) {
+                    depth -= 1
+                    if (depth === 0) {
+                        closeIndex = i
+                        break
+                    }
+                }
+            }
+            if (openIndex < 0 || closeIndex <= openIndex)
+                return null
+            return {
+                prefix: pattern.slice(0, openIndex),
+                capture: pattern.slice(openIndex + 1, closeIndex),
+                suffix: pattern.slice(closeIndex + 1)
+            }
+        }
+
+        function unescapeRegexLiteral(text) {
+            return String(text).replace(/\\([.*+?^${}()|[\]\\])/g, "$1")
+        }
+
+        function populateFromCard(cardIndex) {
+            var info = CardBridge.cardAt(cardIndex)
+            if (!info || info.id === undefined)
+                return false
+
+            resetForm()
+            newCardName.text = info.name || ""
+            newCardUnit.text = info.unit || ""
+            newCardColor.text = info.color || "#0e7a68"
+
+            var pattern = String(info.pattern || "")
+            var type = String(info.type || "numeric")
+            var simpleLoaded = false
+
+            if (type === "numeric") {
+                var numericParts = splitPatternParts(pattern)
+                if (numericParts && (numericParts.capture === "\\d+\\.?\\d*" || numericParts.capture === "-?\\d+\\.?\\d*")) {
+                    advancedMode = false
+                    newCardTypeCombo.currentIndex = 0
+                    newCardPrefix.text = unescapeRegexLiteral(numericParts.prefix)
+                    newCardSuffix.text = unescapeRegexLiteral(numericParts.suffix)
+                    newCardNegative.checked = numericParts.capture.indexOf("-?") === 0
+                    simpleLoaded = true
+                }
+            } else if (type === "boolean") {
+                var parts = pattern.split(";")
+                var regexPart = parts.length > 0 ? String(parts[0]).trim() : ""
+                var boolParts = splitPatternParts(regexPart)
+                if (boolParts) {
+                    advancedMode = false
+                    newCardTypeCombo.currentIndex = 1
+                    newCardPrefix.text = unescapeRegexLiteral(boolParts.prefix)
+                    newCardSuffix.text = unescapeRegexLiteral(boolParts.suffix)
+                    boolTrueList = ["ON"]
+                    boolFalseList = ["OFF"]
+                    for (var j = 1; j < parts.length; ++j) {
+                        var part = String(parts[j]).trim()
+                        if (part.indexOf("true=") === 0)
+                            boolTrueList = part.slice(5).split("|")
+                        else if (part.indexOf("false=") === 0)
+                            boolFalseList = part.slice(6).split("|")
+                    }
+                    simpleLoaded = true
+                }
+            }
+
+            if (!simpleLoaded) {
+                advancedMode = true
+                newCardPattern.text = pattern
+                if (type === "boolean") {
+                    newCardTypeAdvBool.checked = true
+                    newCardTypeAdvNumeric.checked = false
+                } else {
+                    newCardTypeAdvNumeric.checked = true
+                    newCardTypeAdvBool.checked = false
+                }
+            }
+            return true
+        }
+
+        function openForCreate() {
+            editMode = false
+            editingCardIndex = -1
+            resetForm()
+            open()
+        }
+
+        function openForEdit(cardIndex) {
+            if (!populateFromCard(cardIndex))
+                return
+            editMode = true
+            editingCardIndex = cardIndex
+            open()
+        }
+
+        onOpened: {
             newCardName.forceActiveFocus()
         }
 
@@ -1896,7 +2089,7 @@ Window {
                     RowLayout {
                         Layout.fillWidth: true
                         Label {
-                            text: "新建监测卡片"
+                            text: addCardPopup.editMode ? "编辑监测卡片" : "新建监测卡片"
                             font.pixelSize: 13
                             font.bold: true
                             color: root.textColor
@@ -2150,7 +2343,7 @@ Window {
                         Item { visible: addCardPopup.advancedMode; Layout.fillWidth: true }
 
                         PrimaryButton {
-                            text: "创建"
+                            text: addCardPopup.editMode ? "保存" : "创建"
                             enabled: addCardPopup.canCreate()
                             onClicked: {
                                 var pattern = addCardPopup.buildPattern()
@@ -2161,21 +2354,38 @@ Window {
                                     cardType = newCardTypeCombo.currentIndex === 0 ? "numeric" : "boolean"
                                 var color = root.normalizeColorValue(newCardColor.text)
                                 if (!color) color = "#0e7a68"
-                                CardBridge.addCard(newCardName.text, pattern,
-                                                   cardType, newCardUnit.text, color)
-                                // Place new card at camera center
-                                var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
-                                var vw = cardArea.width || 400
-                                var vh = cardArea.height || 300
-                                var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
-                                var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
-                                spawnX = root.snapToGrid(spawnX)
-                                spawnY = root.snapToGrid(spawnY)
-                                root.setCardLayout(newId, "x", spawnX)
-                                root.setCardLayout(newId, "y", spawnY)
-                                addCardPopup.close()
-                                root.autoSaveCards()
-                                root.showToast("已创建卡片：" + newCardName.text)
+                                if (addCardPopup.editMode) {
+                                    CardBridge.updateCard(addCardPopup.editingCardIndex, {
+                                        "name": newCardName.text,
+                                        "pattern": pattern,
+                                        "type": cardType,
+                                        "unit": newCardUnit.text,
+                                        "color": color
+                                    })
+                                    var editedItem = cardRepeater.count > addCardPopup.editingCardIndex
+                                                   ? cardRepeater.itemAt(addCardPopup.editingCardIndex) : null
+                                    if (editedItem)
+                                        editedItem.cardInfo = CardBridge.cardAt(addCardPopup.editingCardIndex)
+                                    addCardPopup.close()
+                                    root.autoSaveCards()
+                                    root.showToast("已更新卡片：" + newCardName.text)
+                                } else {
+                                    CardBridge.addCard(newCardName.text, pattern,
+                                                       cardType, newCardUnit.text, color)
+                                    // Place new card at camera center
+                                    var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
+                                    var vw = cardArea.width || 400
+                                    var vh = cardArea.height || 300
+                                    var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
+                                    var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
+                                    spawnX = root.snapToGrid(spawnX)
+                                    spawnY = root.snapToGrid(spawnY)
+                                    root.setCardLayout(newId, "x", spawnX)
+                                    root.setCardLayout(newId, "y", spawnY)
+                                    addCardPopup.close()
+                                    root.autoSaveCards()
+                                    root.showToast("已创建卡片：" + newCardName.text)
+                                }
                             }
                         }
                     }
