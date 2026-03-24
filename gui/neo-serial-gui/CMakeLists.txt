@@ -43,6 +43,9 @@ qt_add_qml_module(appneo-serial-gui
     QML_FILES
         Main.qml
         modules/MainWindow.qml
+        modules/ThemePopup.qml
+        modules/AddMonitorCardPopup.qml
+        modules/ControlCardPopup.qml
         modules/controls/LightButton.qml
         modules/controls/PrimaryButton.qml
         modules/controls/LightComboBox.qml

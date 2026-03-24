@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
@@ -113,6 +113,10 @@ Window {
     property int cardZCounter: 1000
     property bool gridSnapEnabled: cardLayoutSettings.gridSnapEnabled
     property bool addCardMenuOpen: false
+    // Tool mode for card area drawing
+    property string toolMode: "none"  // "none", "brush", "eraser", "text"
+    property color brushColor: root.primary
+    property real brushSize: 4
     readonly property real cardGridSize: 20
     readonly property color cardGridColor: Qt.rgba(panelBorder.r, panelBorder.g, panelBorder.b, 0.55)
 
@@ -478,213 +482,9 @@ Window {
         toastAnim.restart()
     }
 
-    Popup {
+    ThemePopup {
         id: themePopup
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        parent: root.contentItem
-        padding: 0
-        width: 500
-        height: 540
-        x: (root.width - width) / 2
-        y: Math.max(12, (root.height - height) / 2)
-
-        background: Rectangle {
-            radius: root.cr
-            color: root.panelBg
-            border.color: root.panelBorder
-        }
-
-        contentItem: Item {
-            anchors.fill: parent
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 8
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label {
-                        text: "主题与日志样式"
-                        font.pixelSize: 13
-                        font.bold: true
-                        color: root.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    LightButton {
-                        text: "关闭"
-                        onClicked: themePopup.close()
-                    }
-                }
-
-                ScrollView {
-                    id: themeScroll
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                    Column {
-                        id: themeCol
-                        width: themeScroll.availableWidth
-                        spacing: 10
-
-                        Rectangle {
-                            width: parent.width
-                            implicitHeight: quickThemeColumn.implicitHeight + 20
-                            radius: root.cr
-                            color: root.controlBg
-                            border.color: root.controlBorder
-                            Column {
-                                id: quickThemeColumn
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
-                                Label {
-                                    text: "快速主题"
-                                    font.pixelSize: 11
-                                    color: root.subText
-                                }
-                                RowLayout {
-                                    spacing: 8
-                                    LightButton {
-                                        text: "浅色"
-                                        onClicked: root.setTheme("light")
-                                    }
-                                    LightButton {
-                                        text: "深色"
-                                        onClicked: root.setTheme("dark")
-                                    }
-                                    LightButton {
-                                        text: "暖色"
-                                        onClicked: root.setTheme("warm")
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            width: parent.width
-                            implicitHeight: logStyleColumn.implicitHeight + 20
-                            radius: root.cr
-                            color: root.controlBg
-                            border.color: root.controlBorder
-                            Column {
-                                id: logStyleColumn
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 8
-                                Label {
-                                    text: "通信日志样式"
-                                    font.pixelSize: 11
-                                    color: root.subText
-                                }
-                                RowLayout {
-                                    width: parent.width
-                                    spacing: 8
-                                    Label {
-                                        text: "字体"
-                                        font.pixelSize: 11
-                                        color: root.subText
-                                        Layout.preferredWidth: 40
-                                    }
-                                    LightTextField {
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 28
-                                        text: uiSettings.logFontFamily
-                                        onEditingFinished: uiSettings.logFontFamily = text
-                                    }
-                                    Label {
-                                        text: "字号"
-                                        font.pixelSize: 11
-                                        color: root.subText
-                                        Layout.preferredWidth: 40
-                                    }
-                                    LightSpinBox {
-                                        from: 8
-                                        to: 24
-                                        value: uiSettings.logFontSize
-                                        editable: true
-                                        Layout.preferredWidth: 88
-                                        onValueChanged: uiSettings.logFontSize = value
-                                    }
-                                }
-
-                                ColorField {
-                                    width: parent.width
-                                    label: "字母颜色"
-                                    targetKey: "letters"
-                                    value: uiSettings.logColorLetters
-                                }
-                                ColorField {
-                                    width: parent.width
-                                    label: "数字颜色"
-                                    targetKey: "digits"
-                                    value: uiSettings.logColorDigits
-                                }
-                                ColorField {
-                                    width: parent.width
-                                    label: "符号颜色"
-                                    targetKey: "symbols"
-                                    value: uiSettings.logColorSymbols
-                                }
-                                ColorField {
-                                    width: parent.width
-                                    label: "TX 颜色"
-                                    targetKey: "tx"
-                                    value: uiSettings.logColorTx
-                                }
-                                ColorField {
-                                    width: parent.width
-                                    label: "SYS 颜色"
-                                    targetKey: "sys"
-                                    value: uiSettings.logColorSys
-                                }
-
-                                Rectangle {
-                                    width: parent.width
-                                    implicitHeight: previewColumn.implicitHeight + 16
-                                    radius: 4
-                                    color: root.panelBg
-                                    border.color: root.controlBorder
-                                    Column {
-                                        id: previewColumn
-                                        anchors.fill: parent
-                                        anchors.margins: 8
-                                        spacing: 4
-                                        Label {
-                                            text: "预览（仅演示）"
-                                            font.pixelSize: 10
-                                            color: root.subText
-                                        }
-                                        Text {
-                                            textFormat: Text.StyledText
-                                            font.family: uiSettings.logFontFamily
-                                            font.pixelSize: uiSettings.logFontSize
-                                            color: root.textColor
-                                            width: parent.width
-                                            wrapMode: Text.Wrap
-                                            text: "<span style='color:%1'>ABCdef</span> " +
-                                                  "<span style='color:%2'>012345</span> " +
-                                                  "<span style='color:%3'>!@#$%%</span> " +
-                                                  "<span style='color:%4'>[TX]</span> " +
-                                                  "<span style='color:%5'>[SYS]</span>"
-                                                  .arg(uiSettings.logColorLetters)
-                                                  .arg(uiSettings.logColorDigits)
-                                                  .arg(uiSettings.logColorSymbols)
-                                                  .arg(uiSettings.logColorTx)
-                                                  .arg(uiSettings.logColorSys)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        uiSettings: uiSettings
     }
 
     // ── Layout ───────────────────────────────────────────────
@@ -1786,6 +1586,403 @@ Window {
                         }
                     }
                 }
+
+                // ── Drawing tools (bottom-right corner) ──
+                Row {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 6
+                    z: 1000001
+
+                    // Brush button
+                    Rectangle {
+                        width: 32; height: 32
+                        radius: root.cr
+                        color: toolMode === "brush" ? root.primary : (brushMa.pressed ? root.buttonPress : brushMa.containsMouse ? root.buttonHover : root.buttonBg)
+                        border.color: toolMode === "brush" ? root.primary : root.controlBorder
+                        border.width: toolMode === "brush" ? 2 : 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "✎"
+                            font.pixelSize: 14
+                            color: toolMode === "brush" ? "#ffffff" : root.textColor
+                        }
+
+                        MouseArea {
+                            id: brushMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.toolMode = root.toolMode === "brush" ? "none" : "brush"
+                                if (root.toolMode === "brush") {
+                                    root.showToast("笔刷模式：点击拖动绘制")
+                                }
+                            }
+                        }
+                    }
+
+                    // Eraser button
+                    Rectangle {
+                        width: 32; height: 32
+                        radius: root.cr
+                        color: toolMode === "eraser" ? root.primary : (eraserMa.pressed ? root.buttonPress : eraserMa.containsMouse ? root.buttonHover : root.buttonBg)
+                        border.color: toolMode === "eraser" ? root.primary : root.controlBorder
+                        border.width: toolMode === "eraser" ? 2 : 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "⌫"
+                            font.pixelSize: 14
+                            color: toolMode === "eraser" ? "#ffffff" : root.textColor
+                        }
+
+                        MouseArea {
+                            id: eraserMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.toolMode = root.toolMode === "eraser" ? "none" : "eraser"
+                                if (root.toolMode === "eraser") {
+                                    root.showToast("橡皮模式：点击拖动擦除")
+                                }
+                            }
+                        }
+                    }
+
+                    // Text button
+                    Rectangle {
+                        width: 32; height: 32
+                        radius: root.cr
+                        color: toolMode === "text" ? root.primary : (textMa.pressed ? root.buttonPress : textMa.containsMouse ? root.buttonHover : root.buttonBg)
+                        border.color: toolMode === "text" ? root.primary : root.controlBorder
+                        border.width: toolMode === "text" ? 2 : 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "T"
+                            font.pixelSize: 14
+                            font.bold: true
+                            color: toolMode === "text" ? "#ffffff" : root.textColor
+                        }
+
+                        MouseArea {
+                            id: textMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.toolMode = root.toolMode === "text" ? "none" : "text"
+                                if (root.toolMode === "text") {
+                                    root.showToast("文本模式：点击添加文本")
+                                }
+                            }
+                        }
+                    }
+
+                    // Clear drawing button (only visible when there's drawing)
+                    Rectangle {
+                        width: 32; height: 32
+                        radius: root.cr
+                        color: clearDrawMa.pressed ? root.buttonPress : clearDrawMa.containsMouse ? root.buttonHover : root.buttonBg
+                        border.color: root.controlBorder
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "🗑"
+                            font.pixelSize: 12
+                            color: root.subText
+                        }
+
+                        MouseArea {
+                            id: clearDrawMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                drawingCanvas.clearDrawing()
+                                root.showToast("已清除所有绘图")
+                            }
+                        }
+                    }
+                }
+
+                // Prompt text input popup (outside canvas for proper positioning)
+                Rectangle {
+                    id: promptTextInput
+                    width: 150
+                    height: 32
+                    radius: root.cr
+                    color: root.panelBg
+                    border.color: root.primary
+                    border.width: 2
+                    visible: false
+                    z: 1000002
+
+                    property real storedSceneX: 0
+                    property real storedSceneY: 0
+
+                    TextInput {
+                        id: textInputField
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        font.pixelSize: 12
+                        color: root.textColor
+                        focus: true
+
+                        Keys.onReturnPressed: {
+                            if (text.length > 0) {
+                                var txt = {
+                                    x: promptTextInput.storedSceneX,
+                                    y: promptTextInput.storedSceneY,
+                                    text: text,
+                                    color: root.brushColor,
+                                    fontSize: 14
+                                }
+                                drawingCanvas.texts = drawingCanvas.texts.concat([txt])
+                                drawingCanvas.requestPaint()
+                            }
+                            promptTextInput.visible = false
+                            text = ""
+                        }
+
+                        Keys.onEscapePressed: {
+                            promptTextInput.visible = false
+                            text = ""
+                        }
+
+                        onActiveFocusChanged: {
+                            if (!activeFocus && promptTextInput.visible) {
+                                promptTextInput.visible = false
+                            }
+                        }
+                    }
+                }
+
+                // Drawing canvas overlay
+                Canvas {
+                    id: drawingCanvas
+                    anchors.fill: parent
+                    z: 50  // Above cards but below UI elements
+                    enabled: root.toolMode !== "none"
+
+                    // Store drawing data in SCENE coordinates (camera-independent)
+                    property var strokes: []  // Array of stroke objects with scene coordinates
+                    property var texts: []     // Array of text objects with scene coordinates
+                    property bool isDrawing: false
+                    property var currentStroke: null
+                    property point lastScenePoint: Qt.point(0, 0)
+
+                    // Convert scene coordinate to screen coordinate
+                    function sceneToScreen(sceneX, sceneY) {
+                        return Qt.point(
+                            sceneX * cardArea.cameraScale + cardArea.cameraX,
+                            sceneY * cardArea.cameraScale + cardArea.cameraY
+                        )
+                    }
+
+                    // Convert screen coordinate to scene coordinate
+                    function screenToScene(screenX, screenY) {
+                        return Qt.point(
+                            (screenX - cardArea.cameraX) / cardArea.cameraScale,
+                            (screenY - cardArea.cameraY) / cardArea.cameraScale
+                        )
+                    }
+
+                    function clearDrawing() {
+                        strokes = []
+                        texts = []
+                        requestPaint()
+                    }
+
+                    function addText(x, y) {
+                        // Show input dialog for text at click position
+                        // Convert from canvas coordinates to scene coordinates
+                        var scenePos = screenToScene(x, y)
+
+                        // Position promptTextInput in screen coordinates
+                        promptTextInput.storedSceneX = scenePos.x
+                        promptTextInput.storedSceneY = scenePos.y
+                        promptTextInput.x = x
+                        promptTextInput.y = y
+                        promptTextInput.visible = true
+                        promptTextInput.forceActiveFocus()
+                    }
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+
+                        var scale = cardArea.cameraScale
+                        var offsetX = cardArea.cameraX
+                        var offsetY = cardArea.cameraY
+
+                        // Helper: convert scene to screen coordinates
+                        function toScreen(sx, sy) {
+                            return {
+                                x: sx * scale + offsetX,
+                                y: sy * scale + offsetY
+                            }
+                        }
+
+                        // Draw all strokes (convert scene to screen coordinates)
+                        for (var i = 0; i < strokes.length; i++) {
+                            var stroke = strokes[i]
+                            if (stroke.points.length < 2) continue
+
+                            ctx.strokeStyle = stroke.color
+                            ctx.lineWidth = stroke.size * scale
+                            ctx.lineCap = "round"
+                            ctx.lineJoin = "round"
+
+                            var startPt = toScreen(stroke.points[0].x, stroke.points[0].y)
+                            ctx.beginPath()
+                            ctx.moveTo(startPt.x, startPt.y)
+                            for (var j = 1; j < stroke.points.length; j++) {
+                                var pt = toScreen(stroke.points[j].x, stroke.points[j].y)
+                                ctx.lineTo(pt.x, pt.y)
+                            }
+                            ctx.stroke()
+                        }
+
+                        // Draw current stroke (convert scene to screen coordinates)
+                        if (currentStroke && currentStroke.points.length > 1) {
+                            ctx.strokeStyle = currentStroke.color
+                            ctx.lineWidth = currentStroke.size * scale
+                            ctx.lineCap = "round"
+                            ctx.lineJoin = "round"
+
+                            var curStartPt = toScreen(currentStroke.points[0].x, currentStroke.points[0].y)
+                            ctx.beginPath()
+                            ctx.moveTo(curStartPt.x, curStartPt.y)
+                            for (var k = 1; k < currentStroke.points.length; k++) {
+                                var curPt = toScreen(currentStroke.points[k].x, currentStroke.points[k].y)
+                                ctx.lineTo(curPt.x, curPt.y)
+                            }
+                            ctx.stroke()
+                        }
+
+                        // Draw all texts (convert scene to screen coordinates)
+                        ctx.textBaseline = "top"
+                        for (var t = 0; t < texts.length; t++) {
+                            var txt = texts[t]
+                            var txtPos = toScreen(txt.x, txt.y)
+                            ctx.fillStyle = txt.color
+                            ctx.font = (txt.fontSize * scale) + "px sans-serif"
+                            ctx.fillText(txt.text, txtPos.x, txtPos.y)
+                        }
+                    }
+
+                    // Re-paint when camera changes
+                    Connections {
+                        target: cardArea
+                        function onCameraScaleChanged() { drawingCanvas.requestPaint() }
+                        function onCameraXChanged() { drawingCanvas.requestPaint() }
+                        function onCameraYChanged() { drawingCanvas.requestPaint() }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: root.toolMode !== "none"
+                        hoverEnabled: true
+
+                        onPressed: function(mouse) {
+                            if (root.toolMode === "none") return
+
+                            var screenPos = mapToItem(drawingCanvas, mouse.x, mouse.y)
+                            var scenePos = drawingCanvas.screenToScene(screenPos.x, screenPos.y)
+
+                            if (root.toolMode === "text") {
+                                drawingCanvas.addText(screenPos.x, screenPos.y)
+                                return
+                            }
+
+                            // Brush or eraser mode - store in scene coordinates
+                            drawingCanvas.isDrawing = true
+                            drawingCanvas.lastScenePoint = scenePos
+
+                            var color = root.toolMode === "eraser" ? "#ffffff" : root.brushColor
+                            var size = root.toolMode === "eraser" ? root.brushSize * 3 : root.brushSize
+
+                            drawingCanvas.currentStroke = {
+                                color: color,
+                                size: size,
+                                points: [scenePos]  // Store scene coordinate
+                            }
+                            drawingCanvas.requestPaint()
+                        }
+
+                        onPositionChanged: function(mouse) {
+                            if (!drawingCanvas.isDrawing || root.toolMode === "none" || root.toolMode === "text") return
+
+                            var screenPos = mapToItem(drawingCanvas, mouse.x, mouse.y)
+                            var scenePos = drawingCanvas.screenToScene(screenPos.x, screenPos.y)
+
+                            // Add point to current stroke in scene coordinates
+                            if (drawingCanvas.currentStroke) {
+                                // Interpolate for smoother lines (in scene coordinates)
+                                var dx = scenePos.x - drawingCanvas.lastScenePoint.x
+                                var dy = scenePos.y - drawingCanvas.lastScenePoint.y
+                                var dist = Math.sqrt(dx * dx + dy * dy)
+
+                                // Use smaller threshold in scene coordinates for smoother lines
+                                if (dist > 2 / cardArea.cameraScale) {
+                                    drawingCanvas.currentStroke.points.push(scenePos)
+                                    drawingCanvas.lastScenePoint = scenePos
+                                    drawingCanvas.requestPaint()
+                                }
+                            }
+                        }
+
+                        onReleased: function(mouse) {
+                            if (drawingCanvas.isDrawing && drawingCanvas.currentStroke) {
+                                var screenPos = mapToItem(drawingCanvas, mouse.x, mouse.y)
+                                var scenePos = drawingCanvas.screenToScene(screenPos.x, screenPos.y)
+                                var eraserSceneSize = (root.brushSize * 3) / cardArea.cameraScale
+
+                                // Check if we should erase this stroke (eraser mode collision)
+                                if (root.toolMode === "eraser") {
+                                    // Find and remove strokes that intersect with eraser (in scene coordinates)
+                                    var newStrokes = []
+                                    for (var i = 0; i < drawingCanvas.strokes.length; i++) {
+                                        var stroke = drawingCanvas.strokes[i]
+                                        var shouldRemove = false
+
+                                        for (var j = 0; j < stroke.points.length; j++) {
+                                            var pt = stroke.points[j]
+                                            var pdx = pt.x - scenePos.x
+                                            var pdy = pt.y - scenePos.y
+                                            var pdist = Math.sqrt(pdx * pdx + pdy * pdy)
+
+                                            if (pdist < eraserSceneSize) {
+                                                shouldRemove = true
+                                                break
+                                            }
+                                        }
+
+                                        if (!shouldRemove) {
+                                            newStrokes.push(stroke)
+                                        }
+                                    }
+                                    drawingCanvas.strokes = newStrokes
+                                } else {
+                                    // Add completed stroke to list (in scene coordinates)
+                                    if (drawingCanvas.currentStroke.points.length > 1) {
+                                        drawingCanvas.strokes = drawingCanvas.strokes.concat([drawingCanvas.currentStroke])
+                                    }
+                                }
+                            }
+
+                            drawingCanvas.isDrawing = false
+                            drawingCanvas.currentStroke = null
+                            drawingCanvas.requestPaint()
+                        }
+                    }
+                }
             }
 
             // Right: serial panel
@@ -2017,683 +2214,16 @@ Window {
 
     // ── Add Card Popup ────────────────────────────────────────
 
-    Popup {
+    AddMonitorCardPopup {
         id: addCardPopup
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        parent: root.contentItem
-        padding: 0
-        width: 420
-        height: Math.min(root.height - 24, addCardContent.implicitHeight + 24)
-        x: (root.width - width) / 2
-        y: Math.max(12, (root.height - height) / 2)
-
-        property bool advancedMode: false
-        property var boolTrueList: []
-        property var boolFalseList: []
-        property bool editMode: false
-        property int editingCardIndex: -1
-
-        background: Rectangle {
-            radius: root.cr
-            color: root.panelBg
-            border.color: root.panelBorder
-        }
-
-        function resetForm() {
-            newCardName.text = ""
-            newCardPattern.text = ""
-            newCardPrefix.text = ""
-            newCardSuffix.text = ""
-            newCardUnit.text = ""
-            newCardColor.text = "#0e7a68"
-            newCardTypeCombo.currentIndex = 0
-            advancedMode = false
-            newCardTypeAdvNumeric.checked = true
-            newCardTypeAdvBool.checked = false
-            newCardNegative.checked = false
-            boolTrueList = ["ON"]
-            boolFalseList = ["OFF"]
-        }
-
-        function splitPatternParts(pattern) {
-            var openIndex = -1
-            var closeIndex = -1
-            var escaped = false
-            var depth = 0
-            for (var i = 0; i < pattern.length; ++i) {
-                var ch = pattern.charAt(i)
-                if (escaped) {
-                    escaped = false
-                    continue
-                }
-                if (ch === "\\") {
-                    escaped = true
-                    continue
-                }
-                if (ch === "(") {
-                    if (depth === 0)
-                        openIndex = i
-                    depth += 1
-                } else if (ch === ")" && depth > 0) {
-                    depth -= 1
-                    if (depth === 0) {
-                        closeIndex = i
-                        break
-                    }
-                }
-            }
-            if (openIndex < 0 || closeIndex <= openIndex)
-                return null
-            return {
-                prefix: pattern.slice(0, openIndex),
-                capture: pattern.slice(openIndex + 1, closeIndex),
-                suffix: pattern.slice(closeIndex + 1)
-            }
-        }
-
-        function unescapeRegexLiteral(text) {
-            return String(text).replace(/\\([.*+?^${}()|[\]\\])/g, "$1")
-        }
-
-        function populateFromCard(cardIndex) {
-            var info = CardBridge.cardAt(cardIndex)
-            if (!info || info.id === undefined)
-                return false
-
-            resetForm()
-            newCardName.text = info.name || ""
-            newCardUnit.text = info.unit || ""
-            newCardColor.text = info.color || "#0e7a68"
-
-            var pattern = String(info.pattern || "")
-            var type = String(info.type || "numeric")
-            var simpleLoaded = false
-
-            if (type === "numeric") {
-                var numericParts = splitPatternParts(pattern)
-                if (numericParts && (numericParts.capture === "\\d+\\.?\\d*" || numericParts.capture === "-?\\d+\\.?\\d*")) {
-                    advancedMode = false
-                    newCardTypeCombo.currentIndex = 0
-                    newCardPrefix.text = unescapeRegexLiteral(numericParts.prefix)
-                    newCardSuffix.text = unescapeRegexLiteral(numericParts.suffix)
-                    newCardNegative.checked = numericParts.capture.indexOf("-?") === 0
-                    simpleLoaded = true
-                }
-            } else if (type === "boolean") {
-                var parts = pattern.split(";")
-                var regexPart = parts.length > 0 ? String(parts[0]).trim() : ""
-                var boolParts = splitPatternParts(regexPart)
-                if (boolParts) {
-                    advancedMode = false
-                    newCardTypeCombo.currentIndex = 1
-                    newCardPrefix.text = unescapeRegexLiteral(boolParts.prefix)
-                    newCardSuffix.text = unescapeRegexLiteral(boolParts.suffix)
-                    boolTrueList = ["ON"]
-                    boolFalseList = ["OFF"]
-                    for (var j = 1; j < parts.length; ++j) {
-                        var part = String(parts[j]).trim()
-                        if (part.indexOf("true=") === 0)
-                            boolTrueList = part.slice(5).split("|")
-                        else if (part.indexOf("false=") === 0)
-                            boolFalseList = part.slice(6).split("|")
-                    }
-                    simpleLoaded = true
-                }
-            }
-
-            if (!simpleLoaded) {
-                advancedMode = true
-                newCardPattern.text = pattern
-                if (type === "boolean") {
-                    newCardTypeAdvBool.checked = true
-                    newCardTypeAdvNumeric.checked = false
-                } else {
-                    newCardTypeAdvNumeric.checked = true
-                    newCardTypeAdvBool.checked = false
-                }
-            }
-            return true
-        }
-
-        function openForCreate() {
-            editMode = false
-            editingCardIndex = -1
-            resetForm()
-            open()
-        }
-
-        function openForEdit(cardIndex) {
-            if (!populateFromCard(cardIndex))
-                return
-            editMode = true
-            editingCardIndex = cardIndex
-            open()
-        }
-
-        onOpened: {
-            newCardName.forceActiveFocus()
-        }
-
-        function buildPattern() {
-            if (advancedMode)
-                return newCardPattern.text
-
-            var prefix = newCardPrefix.text
-            var suffix = newCardSuffix.text
-            var isBoolean = newCardTypeCombo.currentIndex === 1
-
-            // Escape regex special chars in user strings
-            function escRe(s) {
-                return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-            }
-
-            if (isBoolean) {
-                // Collect all true/false keywords
-                var trueWords = []
-                var falseWords = []
-                for (var i = 0; i < boolTrueList.length; ++i) {
-                    var tw = boolTrueList[i].trim()
-                    if (tw.length > 0) trueWords.push(tw)
-                }
-                for (var j = 0; j < boolFalseList.length; ++j) {
-                    var fw = boolFalseList[j].trim()
-                    if (fw.length > 0) falseWords.push(fw)
-                }
-                if (trueWords.length === 0) trueWords = ["ON"]
-                if (falseWords.length === 0) falseWords = ["OFF"]
-
-                var allKw = trueWords.concat(falseWords).map(escRe)
-                var regex = escRe(prefix) + "(" + allKw.join("|") + ")" + escRe(suffix)
-                return regex + "; true=" + trueWords.join("|") + "; false=" + falseWords.join("|")
-            } else {
-                var neg = newCardNegative.checked ? "-?" : ""
-                return escRe(prefix) + "(" + neg + "\\d+\\.?\\d*)" + escRe(suffix)
-            }
-        }
-
-        function canCreate() {
-            if (newCardName.text.length === 0) return false
-            if (advancedMode) return newCardPattern.text.length > 0
-            return newCardPrefix.text.length > 0 || newCardSuffix.text.length > 0
-        }
-
-        contentItem: Item {
-            implicitHeight: addCardContent.implicitHeight
-            implicitWidth: addCardContent.implicitWidth
-
-            ScrollView {
-                anchors.fill: parent
-                clip: true
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                ColumnLayout {
-                    id: addCardContent
-                    width: addCardPopup.width - 32
-                    x: 16
-                    spacing: 10
-
-                    Item { Layout.preferredHeight: 4 }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Label {
-                            text: addCardPopup.editMode ? "编辑监测卡片" : "新建监测卡片"
-                            font.pixelSize: 13
-                            font.bold: true
-                            color: root.textColor
-                        }
-                        Item { Layout.fillWidth: true }
-                        LightButton {
-                            text: addCardPopup.advancedMode ? "简单模式" : "高级模式"
-                            onClicked: addCardPopup.advancedMode = !addCardPopup.advancedMode
-                        }
-                        LightButton {
-                            text: "关闭"
-                            onClicked: addCardPopup.close()
-                        }
-                    }
-
-                    Label { text: "名称"; font.pixelSize: 11; color: root.subText }
-                    LightTextField {
-                        id: newCardName
-                        Layout.fillWidth: true
-                        placeholderText: "例如：温度、电压"
-                    }
-
-                    // ── Advanced mode: raw regex ──
-                    ColumnLayout {
-                        visible: addCardPopup.advancedMode
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Label { text: "匹配模式 (正则表达式)"; font.pixelSize: 11; color: root.subText }
-                        LightTextField {
-                            id: newCardPattern
-                            Layout.fillWidth: true
-                            placeholderText: "例如：temp=(\\d+\\.?\\d*)"
-                        }
-
-                        Label { text: "类型"; font.pixelSize: 11; color: root.subText }
-                        RowLayout {
-                            spacing: 12
-                            LightRadio {
-                                id: newCardTypeAdvNumeric
-                                text: "数值 (Numeric)"
-                                checked: true
-                            }
-                            LightRadio {
-                                id: newCardTypeAdvBool
-                                text: "布尔 (Boolean)"
-                            }
-                        }
-                    }
-
-                    // ── Simple mode: prefix + type + suffix ──
-                    ColumnLayout {
-                        visible: !addCardPopup.advancedMode
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Label { text: "匹配规则"; font.pixelSize: 11; color: root.subText }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-
-                            LightTextField {
-                                id: newCardPrefix
-                                Layout.fillWidth: true
-                                placeholderText: "前缀，如 temp="
-                            }
-
-                            LightComboBox {
-                                id: newCardTypeCombo
-                                Layout.preferredWidth: 100
-                                model: ["数值", "布尔"]
-                            }
-
-                            LightTextField {
-                                id: newCardSuffix
-                                Layout.fillWidth: true
-                                placeholderText: "后缀，如 °C"
-                            }
-                        }
-
-                        Label {
-                            text: {
-                                if (newCardTypeCombo.currentIndex === 0)
-                                    return "将匹配：" + (newCardPrefix.text || "前缀") + "<数值>" + (newCardSuffix.text || "后缀")
-                                return "将匹配：" + (newCardPrefix.text || "前缀") + "<关键词>" + (newCardSuffix.text || "后缀")
-                            }
-                            font.pixelSize: 10
-                            color: root.subText
-                            font.italic: true
-                        }
-
-                        LightCheckBox {
-                            id: newCardNegative
-                            visible: newCardTypeCombo.currentIndex === 0
-                            text: "支持负数"
-                        }
-
-                        // Boolean true/false keyword lists
-                        ColumnLayout {
-                            visible: newCardTypeCombo.currentIndex === 1
-                            Layout.fillWidth: true
-                            spacing: 6
-
-                            // True keywords
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label { text: "True 关键词"; font.pixelSize: 11; color: root.subText }
-                                Item { Layout.fillWidth: true }
-                                Rectangle {
-                                    width: 22; height: 22; radius: root.cr
-                                    color: addTrueMa.pressed ? root.buttonPress
-                                         : addTrueMa.containsMouse ? root.buttonHover : root.buttonBg
-                                    border.color: root.controlBorder
-                                    Text { anchors.centerIn: parent; text: "+"; font.pixelSize: 13; color: root.primary }
-                                    MouseArea {
-                                        id: addTrueMa; anchors.fill: parent; hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            var l = addCardPopup.boolTrueList.slice()
-                                            l.push("")
-                                            addCardPopup.boolTrueList = l
-                                        }
-                                    }
-                                }
-                            }
-                            Repeater {
-                                model: addCardPopup.boolTrueList.length
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    LightTextField {
-                                        Layout.fillWidth: true
-                                        text: addCardPopup.boolTrueList[index]
-                                        placeholderText: "如 ON、YES、1"
-                                        onTextEdited: {
-                                            var l = addCardPopup.boolTrueList.slice()
-                                            l[index] = text
-                                            addCardPopup.boolTrueList = l
-                                        }
-                                    }
-                                    LightButton {
-                                        text: "×"
-                                        visible: addCardPopup.boolTrueList.length > 1
-                                        onClicked: {
-                                            var l = addCardPopup.boolTrueList.slice()
-                                            l.splice(index, 1)
-                                            addCardPopup.boolTrueList = l
-                                        }
-                                    }
-                                }
-                            }
-
-                            // False keywords
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label { text: "False 关键词"; font.pixelSize: 11; color: root.subText }
-                                Item { Layout.fillWidth: true }
-                                Rectangle {
-                                    width: 22; height: 22; radius: root.cr
-                                    color: addFalseMa.pressed ? root.buttonPress
-                                         : addFalseMa.containsMouse ? root.buttonHover : root.buttonBg
-                                    border.color: root.controlBorder
-                                    Text { anchors.centerIn: parent; text: "+"; font.pixelSize: 13; color: root.primary }
-                                    MouseArea {
-                                        id: addFalseMa; anchors.fill: parent; hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            var l = addCardPopup.boolFalseList.slice()
-                                            l.push("")
-                                            addCardPopup.boolFalseList = l
-                                        }
-                                    }
-                                }
-                            }
-                            Repeater {
-                                model: addCardPopup.boolFalseList.length
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    LightTextField {
-                                        Layout.fillWidth: true
-                                        text: addCardPopup.boolFalseList[index]
-                                        placeholderText: "如 OFF、NO、0"
-                                        onTextEdited: {
-                                            var l = addCardPopup.boolFalseList.slice()
-                                            l[index] = text
-                                            addCardPopup.boolFalseList = l
-                                        }
-                                    }
-                                    LightButton {
-                                        text: "×"
-                                        visible: addCardPopup.boolFalseList.length > 1
-                                        onClicked: {
-                                            var l = addCardPopup.boolFalseList.slice()
-                                            l.splice(index, 1)
-                                            addCardPopup.boolFalseList = l
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Unit & Color (shared) ──
-                    RowLayout {
-                        spacing: 8
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            Label { text: "单位"; font.pixelSize: 11; color: root.subText }
-                            LightTextField {
-                                id: newCardUnit
-                                Layout.fillWidth: true
-                                placeholderText: "例如：°C、V、A"
-                            }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            Label { text: "颜色"; font.pixelSize: 11; color: root.subText }
-                            RowLayout {
-                                spacing: 4
-                                Rectangle {
-                                    width: 16; height: 16; radius: 4
-                                    color: root.normalizeColorValue(newCardColor.text) || "#000000"
-                                    border.color: root.controlBorder
-                                }
-                                LightTextField {
-                                    id: newCardColor
-                                    Layout.fillWidth: true
-                                    text: "#0e7a68"
-                                }
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.topMargin: 4
-
-                        Label {
-                            visible: !addCardPopup.advancedMode
-                            text: "生成: " + addCardPopup.buildPattern()
-                            font.pixelSize: 9
-                            color: root.subText
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        Item { visible: addCardPopup.advancedMode; Layout.fillWidth: true }
-
-                        PrimaryButton {
-                            text: addCardPopup.editMode ? "保存" : "创建"
-                            enabled: addCardPopup.canCreate()
-                            onClicked: {
-                                var pattern = addCardPopup.buildPattern()
-                                var cardType
-                                if (addCardPopup.advancedMode)
-                                    cardType = newCardTypeAdvNumeric.checked ? "numeric" : "boolean"
-                                else
-                                    cardType = newCardTypeCombo.currentIndex === 0 ? "numeric" : "boolean"
-                                var color = root.normalizeColorValue(newCardColor.text)
-                                if (!color) color = "#0e7a68"
-                                if (addCardPopup.editMode) {
-                                    CardBridge.updateCard(addCardPopup.editingCardIndex, {
-                                        "name": newCardName.text,
-                                        "pattern": pattern,
-                                        "type": cardType,
-                                        "unit": newCardUnit.text,
-                                        "color": color
-                                    })
-                                    var editedItem = cardRepeater.count > addCardPopup.editingCardIndex
-                                                   ? cardRepeater.itemAt(addCardPopup.editingCardIndex) : null
-                                    if (editedItem)
-                                        editedItem.cardInfo = CardBridge.cardAt(addCardPopup.editingCardIndex)
-                                    addCardPopup.close()
-                                    root.autoSaveCards()
-                                    root.showToast("已更新卡片：" + newCardName.text)
-                                } else {
-                                    CardBridge.addCard(newCardName.text, pattern,
-                                                       cardType, newCardUnit.text, color)
-                                    // Place new card at camera center
-                                    var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
-                                    var vw = cardArea.width || 400
-                                    var vh = cardArea.height || 300
-                                    var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
-                                    var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
-                                    spawnX = root.snapToGrid(spawnX)
-                                    spawnY = root.snapToGrid(spawnY)
-                                    root.setCardLayout(newId, "x", spawnX)
-                                    root.setCardLayout(newId, "y", spawnY)
-                                    addCardPopup.close()
-                                    root.autoSaveCards()
-                                    root.showToast("已创建卡片：" + newCardName.text)
-                                }
-                            }
-                        }
-                    }
-
-                    Item { Layout.preferredHeight: 4 }
-                }
-            }
-        }
+        cardAreaRef: cardArea
+        cardRepeaterRef: cardRepeater
     }
 
-    // ── Functions ────────────────────────────────────────────
-
-    Popup {
+    ControlCardPopup {
         id: controlCardPopup
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        parent: root.contentItem
-        padding: 0
-        width: 420
-        height: Math.min(root.height - 24, controlCardContent.implicitHeight + 24)
-        x: (root.width - width) / 2
-        y: Math.max(12, (root.height - height) / 2)
-
-        property bool editMode: false
-        property int editingCardIndex: -1
-
-        function resetForm() {
-            controlCardName.text = ""
-            controlCardSendText.text = ""
-        }
-
-        function openForCreate() {
-            editMode = false
-            editingCardIndex = -1
-            resetForm()
-            open()
-        }
-
-        function openForEdit(cardIndex) {
-            var info = CardBridge.cardAt(cardIndex)
-            if (!info || info.kind !== "control")
-                return
-            editMode = true
-            editingCardIndex = cardIndex
-            controlCardName.text = info.name || ""
-            controlCardSendText.text = info.send_text || ""
-            open()
-        }
-
-        background: Rectangle {
-            radius: root.cr
-            color: root.panelBg
-            border.color: root.panelBorder
-        }
-
-        onOpened: controlCardName.forceActiveFocus()
-
-        contentItem: Item {
-            implicitHeight: controlCardContent.implicitHeight
-            implicitWidth: controlCardContent.implicitWidth
-
-            ColumnLayout {
-                id: controlCardContent
-                width: controlCardPopup.width - 32
-                x: 16
-                spacing: 10
-
-                Item { Layout.preferredHeight: 4 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Label {
-                        text: controlCardPopup.editMode ? "编辑控制卡片" : "新建控制卡片"
-                        font.pixelSize: 13
-                        font.bold: true
-                        color: root.textColor
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    LightButton {
-                        text: "关闭"
-                        onClicked: controlCardPopup.close()
-                    }
-                }
-
-                Label { text: "标题"; font.pixelSize: 11; color: root.subText }
-                LightTextField {
-                    id: controlCardName
-                    Layout.fillWidth: true
-                    placeholderText: "例如：启动设备"
-                }
-
-                Label { text: "串口发送文本"; font.pixelSize: 11; color: root.subText }
-                TextArea {
-                    id: controlCardSendText
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 120
-                    font.pixelSize: 12
-                    color: root.textColor
-                    placeholderText: "输入点击发送按钮后要发送的文本"
-                    placeholderTextColor: root.subText
-                    wrapMode: TextEdit.Wrap
-                    leftPadding: 6
-                    rightPadding: 6
-                    topPadding: 6
-                    bottomPadding: 6
-                    background: Rectangle {
-                        radius: root.cr
-                        color: root.controlBg
-                        border.color: root.controlBorder
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Item { Layout.fillWidth: true }
-
-                    PrimaryButton {
-                        text: controlCardPopup.editMode ? "保存" : "创建"
-                        enabled: controlCardName.text.trim().length > 0
-                        onClicked: {
-                            if (controlCardPopup.editMode) {
-                                CardBridge.updateCard(controlCardPopup.editingCardIndex, {
-                                    "name": controlCardName.text,
-                                    "send_text": controlCardSendText.text
-                                })
-                                var editedItem = cardRepeater.count > controlCardPopup.editingCardIndex
-                                               ? cardRepeater.itemAt(controlCardPopup.editingCardIndex) : null
-                                if (editedItem)
-                                    editedItem.cardInfo = CardBridge.cardAt(controlCardPopup.editingCardIndex)
-                                root.autoSaveCards()
-                                controlCardPopup.close()
-                                root.showToast("已更新控制卡片：" + controlCardName.text)
-                            } else {
-                                CardBridge.addControlCard(controlCardName.text, controlCardSendText.text)
-                                var newId = CardBridge.cardAt(CardBridge.cardCount - 1).id
-                                var vw = cardArea.width || 400
-                                var vh = cardArea.height || 300
-                                var spawnX = (vw / 2.0 - cardArea.cameraX) / cardArea.cameraScale - 85
-                                var spawnY = (vh / 2.0 - cardArea.cameraY) / cardArea.cameraScale - 65
-                                spawnX = root.snapToGrid(spawnX)
-                                spawnY = root.snapToGrid(spawnY)
-                                root.setCardLayout(newId, "x", spawnX)
-                                root.setCardLayout(newId, "y", spawnY)
-                                root.autoSaveCards()
-                                controlCardPopup.close()
-                                root.showToast("已创建控制卡片：" + controlCardName.text)
-                            }
-                        }
-                    }
-                }
-
-                Item { Layout.preferredHeight: 4 }
-            }
-        }
+        cardAreaRef: cardArea
+        cardRepeaterRef: cardRepeater
     }
 
     function doConnect() {
