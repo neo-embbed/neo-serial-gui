@@ -63,10 +63,24 @@ int CardBridge::cardCount() const {
 QStringList CardBridge::presetNames() const {
     QStringList names;
     for (const auto &p : presets_) {
-        if (p.isObject())
-            names << p.toObject().value("name").toString();
+        if (p.isObject()) {
+            const QJsonObject obj = p.toObject();
+            names << obj.value("name").toString(
+                defaultPresetName(obj.value("slot").toInt(names.size() + 1)));
+        }
     }
     return names;
+}
+
+QVariantList CardBridge::presetSlots() const {
+    QVariantList result;
+    for (int slot = 1; slot <= kPresetSlotCount; ++slot)
+        result.append(presetSlot(slot));
+    return result;
+}
+
+int CardBridge::currentPresetSlot() const {
+    return currentPresetSlot_;
 }
 
 // ---- File I/O ------------------------------------------------------------
@@ -93,18 +107,23 @@ bool CardBridge::loadFromFile(const QString &path) {
 
     QJsonObject current = root.value("current").toObject();
     setCurrentName(current.value("name").toString());
+    setCurrentPresetSlot(current.value("preset_slot").toInt(-1));
     cardsFromJson(current.value("cards").toArray());
 
     presets_ = root.value("presets").toArray();
+    normalizePresets();
     emit presetsChanged();
 
     return true;
 }
 
 bool CardBridge::saveToFile(const QString &path) {
+    normalizePresets();
+
     QJsonObject current;
-    current["name"]  = currentName_;
-    current["cards"] = cardsToJson();
+    current["name"]        = currentName_;
+    current["cards"]       = cardsToJson();
+    current["preset_slot"] = currentPresetSlot_;
 
     QJsonObject root;
     root["current"] = current;
@@ -240,43 +259,124 @@ QVariantMap CardBridge::cardAt(int index) const {
 // ---- Presets -------------------------------------------------------------
 
 void CardBridge::savePreset(const QString &name) {
-    QJsonArray updated;
-    for (const auto &p : presets_) {
-        if (p.isObject() && p.toObject().value("name").toString() != name)
-            updated.append(p);
+    for (int slot = 1; slot <= kPresetSlotCount; ++slot) {
+        const QVariantMap info = presetSlot(slot);
+        if (info.value("name").toString() == name) {
+            savePresetSlot(slot);
+            return;
+        }
     }
 
-    QJsonObject preset;
-    preset["name"]     = name;
-    preset["cards"]    = cardsToJson();
-    preset["saved_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    updated.append(preset);
-
-    presets_ = updated;
-    emit presetsChanged();
+    const int slot = qBound(1, presets_.size() + 1, kPresetSlotCount);
+    updatePresetSlotMeta(slot, name, QString());
+    savePresetSlot(slot);
 }
 
 void CardBridge::loadPreset(const QString &name) {
-    for (const auto &p : presets_) {
-        if (!p.isObject())
-            continue;
-        QJsonObject obj = p.toObject();
-        if (obj.value("name").toString() == name) {
-            setCurrentName(name);
-            cardsFromJson(obj.value("cards").toArray());
+    for (int slot = 1; slot <= kPresetSlotCount; ++slot) {
+        const QVariantMap info = presetSlot(slot);
+        if (info.value("name").toString() == name) {
+            loadPresetSlot(slot);
             return;
         }
     }
 }
 
 void CardBridge::deletePreset(const QString &name) {
-    QJsonArray updated;
-    for (const auto &p : presets_) {
-        if (p.isObject() && p.toObject().value("name").toString() != name)
-            updated.append(p);
+    for (int slot = 1; slot <= kPresetSlotCount; ++slot) {
+        const QVariantMap info = presetSlot(slot);
+        if (info.value("name").toString() != name)
+            continue;
+
+        const int index = presetSlotToIndex(slot);
+        if (index < 0)
+            return;
+
+        QJsonObject preset = normalizedPresetObject(presets_.at(index).toObject(), slot);
+        preset["cards"] = QJsonArray();
+        preset["saved_at"] = QString();
+        presets_[index] = preset;
+        if (currentPresetSlot_ == slot)
+            setCurrentPresetSlot(-1);
+        emit presetsChanged();
+        return;
     }
-    presets_ = updated;
+}
+
+QVariantMap CardBridge::presetSlot(int slot) const {
+    QVariantMap vm;
+    const int index = presetSlotToIndex(slot);
+    if (index < 0)
+        return vm;
+
+    const QJsonObject preset = (index < presets_.size() && presets_.at(index).isObject())
+        ? normalizedPresetObject(presets_.at(index).toObject(), slot)
+        : normalizedPresetObject(QJsonObject(), slot);
+    const QJsonArray cards = preset.value("cards").toArray();
+
+    vm["slot"] = slot;
+    vm["name"] = preset.value("name").toString(defaultPresetName(slot));
+    vm["note"] = preset.value("note").toString();
+    vm["saved_at"] = preset.value("saved_at").toString();
+    vm["hasCards"] = !cards.isEmpty() || !preset.value("saved_at").toString().isEmpty();
+    vm["isCurrent"] = (currentPresetSlot_ == slot);
+    vm["layout"] = preset.value("layout").toObject().toVariantMap();
+    return vm;
+}
+
+bool CardBridge::savePresetSlot(int slot, const QVariantMap &layout) {
+    normalizePresets();
+    const int index = presetSlotToIndex(slot);
+    if (index < 0)
+        return false;
+
+    QJsonObject preset = normalizedPresetObject(presets_.at(index).toObject(), slot);
+    preset["cards"] = cardsToJson();
+    preset["layout"] = QJsonObject::fromVariantMap(layout);
+    preset["saved_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    presets_[index] = preset;
+
+    setCurrentName(preset.value("name").toString(defaultPresetName(slot)));
+    setCurrentPresetSlot(slot);
     emit presetsChanged();
+    return true;
+}
+
+bool CardBridge::loadPresetSlot(int slot) {
+    const int index = presetSlotToIndex(slot);
+    if (index < 0)
+        return false;
+
+    const QJsonObject preset = normalizedPresetObject(presets_.at(index).toObject(), slot);
+    const QString savedAt = preset.value("saved_at").toString();
+    const QJsonArray cards = preset.value("cards").toArray();
+    if (savedAt.isEmpty() && cards.isEmpty()
+        && preset.value("layout").toObject().isEmpty())
+        return false;
+
+    setCurrentName(preset.value("name").toString(defaultPresetName(slot)));
+    setCurrentPresetSlot(slot);
+    cardsFromJson(cards);
+    return true;
+}
+
+bool CardBridge::updatePresetSlotMeta(int slot, const QString &name,
+                                      const QString &note) {
+    normalizePresets();
+    const int index = presetSlotToIndex(slot);
+    if (index < 0)
+        return false;
+
+    QJsonObject preset = normalizedPresetObject(presets_.at(index).toObject(), slot);
+    const QString trimmedName = name.trimmed();
+    preset["name"] = trimmedName.isEmpty() ? defaultPresetName(slot) : trimmedName;
+    preset["note"] = note.trimmed();
+    presets_[index] = preset;
+
+    if (currentPresetSlot_ == slot)
+        setCurrentName(preset.value("name").toString(defaultPresetName(slot)));
+    emit presetsChanged();
+    return true;
 }
 
 // ---- Feed ----------------------------------------------------------------
@@ -440,6 +540,65 @@ void CardBridge::flushPendingCardValueUpdates() {
 
     for (auto it = updates.cbegin(); it != updates.cend(); ++it)
         emit cardValueUpdated(it.key(), it.value());
+}
+
+void CardBridge::setCurrentPresetSlot(int slot) {
+    const int normalized = (slot >= 1 && slot <= kPresetSlotCount) ? slot : -1;
+    if (currentPresetSlot_ == normalized)
+        return;
+    currentPresetSlot_ = normalized;
+    emit currentPresetSlotChanged();
+}
+
+int CardBridge::presetSlotToIndex(int slot) {
+    if (slot < 1 || slot > kPresetSlotCount)
+        return -1;
+    return slot - 1;
+}
+
+QString CardBridge::defaultPresetName(int slot) {
+    return QString::number(slot);
+}
+
+QJsonObject CardBridge::normalizedPresetObject(const QJsonObject &obj, int slot) const {
+    QJsonObject preset = obj;
+    preset["slot"] = slot;
+    if (!preset.contains("name") || preset.value("name").toString().trimmed().isEmpty())
+        preset["name"] = defaultPresetName(slot);
+    if (!preset.contains("note"))
+        preset["note"] = QString();
+    if (!preset.contains("saved_at"))
+        preset["saved_at"] = QString();
+    if (!preset.contains("cards") || !preset.value("cards").isArray())
+        preset["cards"] = QJsonArray();
+    if (!preset.contains("layout") || !preset.value("layout").isObject())
+        preset["layout"] = QJsonObject();
+    return preset;
+}
+
+void CardBridge::normalizePresets() {
+    QJsonArray normalized;
+    if (presets_.size() == kPresetSlotCount) {
+        for (int i = 0; i < kPresetSlotCount; ++i)
+            normalized.append(normalizedPresetObject(presets_.at(i).toObject(), i + 1));
+        presets_ = normalized;
+        return;
+    }
+
+    for (int i = 0; i < kPresetSlotCount; ++i) {
+        const int slot = i + 1;
+        QJsonObject preset;
+        if (i < presets_.size() && presets_.at(i).isObject()) {
+            const QJsonObject legacy = presets_.at(i).toObject();
+            preset = normalizedPresetObject(legacy, slot);
+            if ((!legacy.contains("slot")) && legacy.contains("name")
+                && !legacy.value("name").toString().trimmed().isEmpty()) {
+                preset["name"] = legacy.value("name").toString();
+            }
+        }
+        normalized.append(normalizedPresetObject(preset, slot));
+    }
+    presets_ = normalized;
 }
 
 int CardBridge::nextCardId() const {

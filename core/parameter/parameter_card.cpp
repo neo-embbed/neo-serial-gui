@@ -54,7 +54,7 @@ void ParameterCard::compilePattern() {
             // Case-insensitive prefix check
             std::string lower = p;
             std::transform(lower.begin(), lower.end(), lower.begin(),
-                           [](unsigned char c){ return std::tolower(c); });
+                        [](unsigned char c){ return std::tolower(c); });
 
             if (lower.substr(0, 5) == "true=") {
                 true_values_ = splitValues(p.substr(5));

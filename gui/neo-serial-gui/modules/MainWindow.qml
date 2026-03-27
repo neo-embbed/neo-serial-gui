@@ -334,6 +334,54 @@ Window {
         CardBridge.saveToFile(cardDataPath)
     }
 
+    function applyPresetLayout(layoutMap) {
+        if (!layoutMap)
+            return
+        cardLayoutMap = layoutMap
+        saveCardLayout()
+        initCardZCounter()
+    }
+
+    function loadPresetScene(slot) {
+        var info = CardBridge.presetSlot(slot)
+        if (!info || !info.hasCards) {
+            showToast("场景 " + slot + " 还没有保存内容")
+            return
+        }
+        if (!CardBridge.loadPresetSlot(slot)) {
+            showToast("场景 " + slot + " 加载失败")
+            return
+        }
+        applyPresetLayout(info.layout || {})
+        autoSaveCards()
+        Qt.callLater(focusCameraOnCards)
+        showToast("已切换到场景 " + (info.name || slot))
+    }
+
+    function savePresetScene(slot, name, note) {
+        if (!CardBridge.updatePresetSlotMeta(slot, name, note)) {
+            showToast("场景信息更新失败")
+            return false
+        }
+        if (!CardBridge.savePresetSlot(slot, cardLayoutMap)) {
+            showToast("场景保存失败")
+            return false
+        }
+        autoSaveCards()
+        showToast("已保存场景 " + slot)
+        return true
+    }
+
+    function updatePresetMeta(slot, name, note) {
+        if (!CardBridge.updatePresetSlotMeta(slot, name, note)) {
+            showToast("场景信息更新失败")
+            return false
+        }
+        autoSaveCards()
+        showToast("已更新场景 " + slot + " 的名称备注")
+        return true
+    }
+
     function appendRichLogLines(lines) {
         if (!lines || lines.length === 0)
             return
@@ -399,8 +447,8 @@ Window {
         var centerY = minY + bboxH / 2.0
 
         // Fit with padding, but don't zoom in beyond 1.0
-        var vw = cardArea.width || 400
-        var vh = cardArea.height || 300
+        var vw = cardViewport.width || 400
+        var vh = cardViewport.height || 300
         var padding = 40
         var scale = Math.min(1.0, (vw - padding * 2) / Math.max(1, bboxW),
                                   (vh - padding * 2) / Math.max(1, bboxH))
@@ -558,6 +606,228 @@ Window {
                 property real cameraY: 0
                 readonly property real minCameraScale: 0.25
                 readonly property real maxCameraScale: 3.0
+                readonly property bool presetDockVisible: presetRevealHover.hovered
+                                                         || presetDockHover.hovered
+                                                         || presetEditorPopup.visible
+
+                Item {
+                    id: presetRevealZone
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 14
+                    z: 10001
+
+                    HoverHandler {
+                        id: presetRevealHover
+                    }
+                }
+
+                Rectangle {
+                    id: presetRevealHint
+                    visible: !cardArea.presetDockVisible
+                    x: 0
+                    y: 86
+                    width: 18
+                    height: 84
+                    radius: 0
+                    color: Qt.rgba(root.controlBg.r, root.controlBg.g, root.controlBg.b, 0.92)
+                    border.color: root.panelBorder
+                    z: 10001
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 140
+                        }
+                    }
+
+                    opacity: presetRevealHover.hovered ? 0.95 : 0.78
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 2
+
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: ">"
+                            font.pixelSize: 10
+                            color: root.primary
+                        }
+
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "预\n设"
+                            font.pixelSize: 8
+                            color: root.subText
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: presetDock
+                    width: 108
+                    implicitHeight: presetDockContent.implicitHeight + 12
+                    x: cardArea.presetDockVisible ? 10 : -width - 12
+                    y: 46
+                    radius: root.cr
+                    color: Qt.rgba(root.controlBg.r, root.controlBg.g, root.controlBg.b, 0.96)
+                    border.color: root.panelBorder
+                    opacity: cardArea.presetDockVisible ? 0.98 : 0
+                    z: 10002
+
+                    Behavior on x {
+                        NumberAnimation {
+                            duration: 180
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 140
+                        }
+                    }
+
+                    HoverHandler {
+                        id: presetDockHover
+                    }
+
+                    Column {
+                        id: presetDockContent
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        spacing: 4
+
+                        Label {
+                            text: "场景预设"
+                            font.pixelSize: 11
+                            font.bold: true
+                            color: root.textColor
+                        }
+
+                        Label {
+                            text: "左键切换"
+                            font.pixelSize: 8
+                            color: root.subText
+                        }
+
+                        Repeater {
+                            model: CardBridge.presetSlots
+
+                            delegate: Rectangle {
+                                readonly property var slotInfo: modelData || ({})
+                                readonly property bool hasCards: !!slotInfo.hasCards
+                                readonly property bool isCurrent: !!slotInfo.isCurrent
+
+                                width: parent.width
+                                height: 36
+                                radius: root.cr
+                                color: isCurrent ? root.statusOkBg
+                                      : slotMouse.containsMouse ? root.buttonHover
+                                      : root.buttonBg
+                                border.width: isCurrent ? 2 : 1
+                                border.color: isCurrent ? root.primary
+                                              : hasCards ? root.controlBorder
+                                              : root.panelBorder
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 6
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 16
+                                    height: 16
+                                    radius: 8
+                                    color: hasCards ? root.primary : root.controlBg
+                                    border.color: hasCards ? root.primary : root.controlBorder
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: String(slotInfo.slot || "")
+                                        font.pixelSize: 8
+                                        color: hasCards ? "#ffffff" : root.subText
+                                    }
+                                }
+
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 28
+                                    anchors.right: slotEditButton.left
+                                    anchors.rightMargin: 2
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 0
+
+                                    Label {
+                                        width: parent.width
+                                        text: (slotInfo.note || "").length > 0 ? slotInfo.note : " "
+                                        font.pixelSize: 8
+                                        color: root.subText
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        width: parent.width
+                                        text: slotInfo.name || String(slotInfo.slot || "")
+                                        font.pixelSize: 10
+                                        font.bold: hasCards || isCurrent
+                                        color: isCurrent ? root.primary : root.textColor
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: slotEditButton
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 4
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 16
+                                    height: 16
+                                    radius: 8
+                                    color: slotEditMouse.pressed ? root.buttonPress
+                                         : slotEditMouse.containsMouse ? root.buttonHover
+                                         : "transparent"
+                                    border.color: "transparent"
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "\uD83D\uDCBE"
+                                        font.pixelSize: 9
+                                        color: slotEditMouse.containsMouse ? root.primary : root.subText
+                                    }
+
+                                    MouseArea {
+                                        id: slotEditMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: presetEditorPopup.openForSlot(slotInfo.slot || 1)
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: slotMouse
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 0
+                                    anchors.right: slotEditButton.left
+                                    anchors.rightMargin: 2
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: function(mouse) {
+                                        if (mouse.button === Qt.RightButton) {
+                                            presetEditorPopup.openForSlot(slotInfo.slot || 1)
+                                            return
+                                        }
+                                        root.loadPresetScene(slotInfo.slot || 1)
+                                    }
+                                    onDoubleClicked: presetEditorPopup.openForSlot(slotInfo.slot || 1)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 Canvas {
                     id: cardGridCanvas
@@ -608,7 +878,7 @@ Window {
 
                 Label {
                     visible: CardBridge.cardCount === 0
-                    anchors.centerIn: parent
+                    anchors.centerIn: cardViewport
                     text: "点击右上角 + 新建卡片"
                     color: root.subText
                 }
@@ -749,7 +1019,7 @@ Window {
                 }
 
                 Rectangle {
-                    anchors.left: parent.left
+                    anchors.left: cardViewport.left
                     anchors.top: parent.top
                     anchors.margins: 10
                     radius: root.cr
@@ -2206,6 +2476,94 @@ Window {
                                 onClicked: doSend()
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: presetEditorPopup
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        width: 280
+        padding: 12
+
+        property int slot: 1
+
+        function openForSlot(slotIndex) {
+            var info = CardBridge.presetSlot(slotIndex) || {}
+            slot = slotIndex
+            presetNameField.text = info.name || String(slotIndex)
+            presetNoteField.text = info.note || ""
+            presetEditorPopup.open()
+            presetNameField.forceActiveFocus()
+            presetNameField.selectAll()
+        }
+
+        background: Rectangle {
+            radius: root.cr
+            color: root.panelBg
+            border.color: root.panelBorder
+        }
+
+        contentItem: Column {
+            spacing: 8
+
+            Label {
+                text: "编辑场景 " + presetEditorPopup.slot
+                font.pixelSize: 13
+                font.bold: true
+                color: root.textColor
+            }
+
+            Label {
+                text: "主标题显示在按钮上，备注显示在上方小字。"
+                font.pixelSize: 10
+                color: root.subText
+                wrapMode: Text.WordWrap
+            }
+
+            TextField {
+                id: presetNameField
+                width: parent.width
+                placeholderText: "场景名称"
+                selectByMouse: true
+            }
+
+            TextField {
+                id: presetNoteField
+                width: parent.width
+                placeholderText: "备注文字"
+                selectByMouse: true
+            }
+
+            RowLayout {
+                width: parent.width
+                spacing: 6
+
+                LightButton {
+                    text: "仅更新文字"
+                    onClicked: {
+                        if (root.updatePresetMeta(presetEditorPopup.slot,
+                                                  presetNameField.text,
+                                                  presetNoteField.text))
+                            presetEditorPopup.close()
+                    }
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                PrimaryButton {
+                    text: "保存当前场景"
+                    onClicked: {
+                        if (root.savePresetScene(presetEditorPopup.slot,
+                                                 presetNameField.text,
+                                                 presetNoteField.text))
+                            presetEditorPopup.close()
                     }
                 }
             }

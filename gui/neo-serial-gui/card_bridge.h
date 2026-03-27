@@ -23,6 +23,8 @@ class CardBridge : public QObject {
     Q_PROPERTY(QString currentName READ currentName WRITE setCurrentName NOTIFY currentNameChanged)
     Q_PROPERTY(int cardCount READ cardCount NOTIFY cardsChanged)
     Q_PROPERTY(QStringList presetNames READ presetNames NOTIFY presetsChanged)
+    Q_PROPERTY(QVariantList presetSlots READ presetSlots NOTIFY presetsChanged)
+    Q_PROPERTY(int currentPresetSlot READ currentPresetSlot NOTIFY currentPresetSlotChanged)
 
 public:
     explicit CardBridge(QObject *parent = nullptr);
@@ -33,6 +35,8 @@ public:
     void        setCurrentName(const QString &name);
     int         cardCount() const;
     QStringList presetNames() const;
+    QVariantList presetSlots() const;
+    int currentPresetSlot() const;
 
     // ---- File I/O (JSON format matching reference/monitor_cards.json) ----
     Q_INVOKABLE bool loadFromFile(const QString &path);
@@ -52,6 +56,11 @@ public:
     Q_INVOKABLE void savePreset(const QString &name);
     Q_INVOKABLE void loadPreset(const QString &name);
     Q_INVOKABLE void deletePreset(const QString &name);
+    Q_INVOKABLE QVariantMap presetSlot(int slot) const;
+    Q_INVOKABLE bool savePresetSlot(int slot, const QVariantMap &layout = QVariantMap());
+    Q_INVOKABLE bool loadPresetSlot(int slot);
+    Q_INVOKABLE bool updatePresetSlotMeta(int slot, const QString &name,
+                                          const QString &note);
 
     // ---- Serial data feed (call from SessionBridge::pollMessages) ----
     Q_INVOKABLE void feed(const QString &line);
@@ -65,6 +74,7 @@ signals:
     void currentNameChanged();
     void cardsChanged();
     void presetsChanged();
+    void currentPresetSlotChanged();
     void cardValueUpdated(int cardId, const QVariantMap &value);
 
 private:
@@ -85,16 +95,23 @@ private:
     void       queueCardValueUpdate(int cardId, QVariantMap value);
     void       flushPendingCardValueUpdates();
     int        nextCardId() const;
+    void       setCurrentPresetSlot(int slot);
+    static int presetSlotToIndex(int slot);
+    static QString defaultPresetName(int slot);
+    QJsonObject normalizedPresetObject(const QJsonObject &obj, int slot) const;
+    void       normalizePresets();
 
     static CardBridge *instance_;
 
     QString                 currentName_;
     std::vector<CardEntry>  cards_;
     QJsonArray              presets_;
+    int                     currentPresetSlot_ = -1;
     QHash<int, QVariantMap> pendingValueUpdates_;
     QTimer                  valueFlushTimer_;
 
     static constexpr int kValueFlushIntervalMs = 50;
+    static constexpr int kPresetSlotCount = 10;
 };
 
 #endif // CARD_BRIDGE_H
