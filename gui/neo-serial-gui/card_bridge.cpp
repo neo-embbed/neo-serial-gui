@@ -548,6 +548,7 @@ void CardBridge::setCurrentPresetSlot(int slot) {
         return;
     currentPresetSlot_ = normalized;
     emit currentPresetSlotChanged();
+    emit presetsChanged();
 }
 
 int CardBridge::presetSlotToIndex(int slot) {

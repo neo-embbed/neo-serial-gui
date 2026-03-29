@@ -535,9 +535,23 @@ Window {
         uiSettings: uiSettings
     }
 
+    Item {
+        id: presetRevealZone
+        x: mainLayout.x + mainContentRow.x + cardArea.x - 20
+        y: mainLayout.y + mainContentRow.y + cardArea.y
+        width: Math.max(44, cardArea.x + 44)
+        height: cardArea.height
+        z: 10001
+
+        HoverHandler {
+            id: presetRevealHover
+        }
+    }
+
     // ── Layout ───────────────────────────────────────────────
 
     ColumnLayout {
+        id: mainLayout
         anchors.fill: parent
         anchors.margins: 8
         spacing: 6
@@ -586,6 +600,7 @@ Window {
 
         // Main content
         RowLayout {
+            id: mainContentRow
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 6
@@ -607,19 +622,20 @@ Window {
                 readonly property real minCameraScale: 0.25
                 readonly property real maxCameraScale: 3.0
                 readonly property bool presetDockVisible: presetRevealHover.hovered
+                                                         || presetInnerRevealHover.hovered
                                                          || presetDockHover.hovered
                                                          || presetEditorPopup.visible
 
                 Item {
-                    id: presetRevealZone
+                    id: presetInnerRevealZone
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    width: 14
+                    width: 24
                     z: 10001
 
                     HoverHandler {
-                        id: presetRevealHover
+                        id: presetInnerRevealHover
                     }
                 }
 
